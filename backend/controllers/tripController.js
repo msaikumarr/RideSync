@@ -1,0 +1,102 @@
+const Trip = require('../models/Trip');
+const TripMember = require('../models/TripMember');
+
+// POST /trip/create
+const createTrip = async (req, res) => {
+  try {
+    const { name, description, separationThresholdKm, plannedRoute } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: 'Trip name is required' });
+    }
+
+    const trip = await Trip.create({
+      name,
+      description,
+      createdBy: req.user.id,
+      separationThresholdKm: separationThresholdKm || 2,
+      plannedRoute: plannedRoute || []
+    });
+
+    await TripMember.create({
+      trip: trip._id,
+      user: req.user.id,
+      role: 'owner'
+    });
+
+    res.status(201).json({ trip });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to create trip', error: err.message });
+  }
+};
+
+// POST /trip/join
+const joinTrip = async (req, res) => {
+  try {
+    const { joinCode } = req.body;
+
+    if (!joinCode) {
+      return res.status(400).json({ message: 'Join code is required' });
+    }
+
+    const trip = await Trip.findOne({ joinCode: joinCode.toUpperCase(), status: 'active' });
+    if (!trip) {
+      return res.status(404).json({ message: 'Trip not found or has ended' });
+    }
+
+    const existingMember = await TripMember.findOne({ trip: trip._id, user: req.user.id });
+    if (existingMember) {
+      return res.status(200).json({ message: 'Already a member of this trip', trip });
+    }
+
+    await TripMember.create({
+      trip: trip._id,
+      user: req.user.id,
+      role: 'member'
+    });
+
+    res.status(200).json({ message: 'Joined trip successfully', trip });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to join trip', error: err.message });
+  }
+};
+
+// GET /trip/:tripId/members
+const getTripMembers = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+    const members = await TripMember.find({ trip: tripId, leftAt: null }).populate(
+      'user',
+      'name email phone'
+    );
+    res.status(200).json({ members });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch trip members', error: err.message });
+  }
+};
+
+// POST /trip/:tripId/end
+const endTrip = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+    const trip = await Trip.findById(tripId);
+
+    if (!trip) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+
+    if (String(trip.createdBy) !== req.user.id) {
+      return res.status(403).json({ message: 'Only the trip owner can end the trip' });
+    }
+
+    trip.status = 'ended';
+    trip.endedAt = new Date();
+    await trip.save();
+
+    res.status(200).json({ message: 'Trip ended', trip });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to end trip', error: err.message });
+  }
+};
+
+module.exports = { createTrip, joinTrip, getTripMembers, endTrip };
