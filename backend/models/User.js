@@ -10,6 +10,12 @@ const userSchema = new mongoose.Schema(
       name: { type: String },
       phone: { type: String }
     }
+    ,
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date },
+    // track OTP request attempts to mitigate abuse
+    resetAttempts: { type: Number, default: 0 },
+    resetLockedUntil: { type: Date }
   },
   { timestamps: true }
 );

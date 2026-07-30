@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "RideSync",
+    "slug": "ridesync",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ridesync.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "RideSync needs your location to share it with your trip group.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "RideSync needs your location to share it with your trip group, including in the background."
+      }
+    },
+    "android": {
+      "package": "com.ridesync.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
+    }
+  }
+}
