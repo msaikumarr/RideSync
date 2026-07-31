@@ -13,7 +13,7 @@ function computeMinimumSettlements(balances) {
     const rounded = Math.round(amount * 100) / 100;
     if (rounded > 0.009) creditors.push({ userId, amount: rounded });
     else if (rounded < -0.009) debtors.push({ userId, amount: -rounded });
-  }); 
+  });
 
   creditors.sort((a, b) => b.amount - a.amount);
   debtors.sort((a, b) => b.amount - a.amount);
@@ -51,8 +51,8 @@ function computeBalances(expenses) {
   const balances = {};
 
   expenses.forEach((expense) => {
-    const payer = String(expense.paidBy);
-    const participants = expense.splitAmong.map(String);
+    const payer = String(expense.paidBy?._id || expense.paidBy);
+    const participants = expense.splitAmong.map((p) => String(p?._id || p));
     const share = expense.amount / participants.length;
 
     balances[payer] = (balances[payer] || 0) + expense.amount;

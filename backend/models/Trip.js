@@ -17,6 +17,11 @@ const tripSchema = new mongoose.Schema(
     joinCode: { type: String, required: true, unique: true, default: generateJoinCode },
     status: { type: String, enum: ['active', 'ended'], default: 'active' },
     separationThresholdKm: { type: Number, default: 2 },
+    destination: {
+      name: { type: String, trim: true },
+      lat: { type: Number },
+      lng: { type: Number }
+    },
     plannedRoute: [
       {
         lat: Number,

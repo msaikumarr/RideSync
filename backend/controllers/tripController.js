@@ -4,7 +4,7 @@ const TripMember = require('../models/TripMember');
 // POST /trip/create
 const createTrip = async (req, res) => {
   try {
-    const { name, description, separationThresholdKm, plannedRoute } = req.body;
+    const { name, description, separationThresholdKm, plannedRoute, destination } = req.body;
 
     if (!name) {
       return res.status(400).json({ message: 'Trip name is required' });
@@ -15,7 +15,8 @@ const createTrip = async (req, res) => {
       description,
       createdBy: req.user.id,
       separationThresholdKm: separationThresholdKm || 2,
-      plannedRoute: plannedRoute || []
+      plannedRoute: plannedRoute || [],
+      destination: destination || undefined
     });
 
     await TripMember.create({
@@ -27,6 +28,44 @@ const createTrip = async (req, res) => {
     res.status(201).json({ trip });
   } catch (err) {
     res.status(500).json({ message: 'Failed to create trip', error: err.message });
+  }
+};
+
+// GET /trip/active
+// Returns the caller's currently active trip (if any), so the app can "resume"
+// into it after navigating away, instead of losing track of it.
+const getActiveTrip = async (req, res) => {
+  try {
+    const memberships = await TripMember.find({ user: req.user.id, leftAt: null }).populate({
+      path: 'trip',
+      match: { status: 'active' }
+    });
+
+    const activeMembership = memberships.find((m) => m.trip);
+
+    if (!activeMembership) {
+      return res.status(200).json({ trip: null });
+    }
+
+    res.status(200).json({ trip: activeMembership.trip });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch active trip', error: err.message });
+  }
+};
+
+// GET /trip/history
+// Returns every trip the caller has ever been part of, most recent first.
+const getTripHistory = async (req, res) => {
+  try {
+    const memberships = await TripMember.find({ user: req.user.id })
+      .populate('trip')
+      .sort({ createdAt: -1 });
+
+    const trips = memberships.filter((m) => m.trip).map((m) => ({ ...m.trip.toObject(), myRole: m.role }));
+
+    res.status(200).json({ trips });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch trip history', error: err.message });
   }
 };
 
@@ -99,4 +138,4 @@ const endTrip = async (req, res) => {
   }
 };
 
-module.exports = { createTrip, joinTrip, getTripMembers, endTrip };
+module.exports = { createTrip, joinTrip, getTripMembers, endTrip, getActiveTrip, getTripHistory };

@@ -12,12 +12,14 @@ import {
 import * as Location from "expo-location";
 import { WebView } from "react-native-webview";
 import { getSocket } from "../utils/socket";
+import { tripAPI } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import SOSButton from "../components/SOSButton";
 
 const LOCATION_TIMEOUT_MS = 20000;
 
-const buildMapHtml = ({ center, selfLocation, members }) => {
-  const payload = JSON.stringify({ center, selfLocation, members });
+const buildMapHtml = ({ center, selfLocation, selfName, members, destination, routeCoordinates }) => {
+  const payload = JSON.stringify({ center, selfLocation, selfName, members, destination, routeCoordinates });
 
   return `
     <!DOCTYPE html>
@@ -27,6 +29,18 @@ const buildMapHtml = ({ center, selfLocation, members }) => {
         <style>
           html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f4f7fe; }
           .leaflet-control-attribution { display: none !important; }
+          .rs-label {
+            background: #FFFFFF;
+            border: none;
+            border-radius: 8px;
+            padding: 3px 8px;
+            font-family: -apple-system, sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            color: #1E293B;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+          }
+          .rs-label::before { display: none; }
         </style>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -42,7 +56,7 @@ const buildMapHtml = ({ center, selfLocation, members }) => {
             attribution: '&copy; OpenStreetMap contributors'
           }).addTo(map);
 
-          const markers = [];
+          const boundsPoints = [];
 
           function addMarker(lat, lng, color, label) {
             const icon = L.divIcon({
@@ -51,20 +65,53 @@ const buildMapHtml = ({ center, selfLocation, members }) => {
               iconSize: [16, 16],
               iconAnchor: [8, 8]
             });
-            const marker = L.marker([lat, lng], { icon }).addTo(map).bindPopup(label);
-            markers.push(marker);
+            const marker = L.marker([lat, lng], { icon }).addTo(map);
+            marker.bindTooltip(label, { permanent: true, direction: 'top', offset: [0, -10], className: 'rs-label' });
+            boundsPoints.push([lat, lng]);
           }
 
           if (data.selfLocation) {
-            addMarker(data.selfLocation.latitude, data.selfLocation.longitude, '#22C55E', 'You');
+            addMarker(data.selfLocation.latitude, data.selfLocation.longitude, '#22C55E', data.selfName || 'You');
           }
 
           (data.members || []).forEach(member => {
-            addMarker(member.latitude, member.longitude, member.sos ? '#EF4444' : '#4F46E5', member.sos ? 'Trip member · SOS' : 'Trip member');
+            addMarker(
+              member.latitude,
+              member.longitude,
+              member.sos ? '#EF4444' : '#4F46E5',
+              member.sos ? (member.name || 'Trip member') + ' · SOS' : (member.name || 'Trip member')
+            );
           });
 
-          if (markers.length > 1) {
-            map.fitBounds(L.featureGroup(markers).getBounds().pad(0.25));
+          if (data.destination && data.destination.lat && data.destination.lng) {
+            const destIcon = L.divIcon({
+              className: '',
+              html: '<div style="width:22px;height:22px;border-radius:6px 6px 6px 0;transform:rotate(45deg);background:#F59E0B;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>',
+              iconSize: [22, 22],
+              iconAnchor: [11, 22]
+            });
+            const destMarker = L.marker([data.destination.lat, data.destination.lng], { icon: destIcon }).addTo(map);
+            destMarker.bindTooltip(data.destination.name || 'Destination', { permanent: true, direction: 'top', offset: [0, -18], className: 'rs-label' });
+            boundsPoints.push([data.destination.lat, data.destination.lng]);
+
+            if (data.routeCoordinates && data.routeCoordinates.length > 1) {
+              // Real road-following route (fetched from a routing service on the app side)
+              L.polyline(data.routeCoordinates, { color: '#4F46E5', weight: 5, opacity: 0.85 }).addTo(map);
+              data.routeCoordinates.forEach(p => boundsPoints.push(p));
+            } else if (data.selfLocation) {
+              // Fallback: straight line shown only until the real route loads
+              L.polyline(
+                [
+                  [data.selfLocation.latitude, data.selfLocation.longitude],
+                  [data.destination.lat, data.destination.lng]
+                ],
+                { color: '#94A3B8', weight: 3, opacity: 0.6, dashArray: '8, 10' }
+              ).addTo(map);
+            }
+          }
+
+          if (boundsPoints.length > 1) {
+            map.fitBounds(L.latLngBounds(boundsPoints).pad(0.25));
           } else if (data.selfLocation) {
             map.setView([data.selfLocation.latitude, data.selfLocation.longitude], 15);
           }
@@ -74,8 +121,27 @@ const buildMapHtml = ({ center, selfLocation, members }) => {
   `;
 };
 
+// Fetches a real road-following route between two points using OSRM's public
+// demo routing server. Returns an array of [lat, lng] pairs for Leaflet, or
+// null if the route couldn't be fetched (caller falls back to a straight line).
+const fetchRoadRoute = async (from, to) => {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.longitude},${from.latitude};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const coordinates = data?.routes?.[0]?.geometry?.coordinates;
+    if (!coordinates) return null;
+    return coordinates.map(([lng, lat]) => [lat, lng]);
+  } catch (err) {
+    return null;
+  }
+};
+
 export default function TripMapScreen({ route, navigation }) {
   const trip = route?.params?.trip;
+  const { user } = useAuth();
+  const isOwner = trip && user && String(trip.createdBy) === String(user.id);
+  const [endingTrip, setEndingTrip] = useState(false);
   const watchSubscription = useRef(null);
   const locationTimeoutRef = useRef(null);
   const defaultRegion = {
@@ -88,6 +154,8 @@ export default function TripMapScreen({ route, navigation }) {
   const [region, setRegion] = useState(defaultRegion);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [members, setMembers] = useState({});
+  const [membersById, setMembersById] = useState({});
+  const [routeCoordinates, setRouteCoordinates] = useState(null);
   const [separationAlert, setSeparationAlert] = useState(null);
   const [locationStatus, setLocationStatus] = useState("loading");
 
@@ -123,6 +191,7 @@ export default function TripMapScreen({ route, navigation }) {
     }
 
     acquireLocation(socket);
+    loadMemberNames();
 
     return () => {
       if (socket) {
@@ -137,6 +206,36 @@ export default function TripMapScreen({ route, navigation }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip?._id]);
+
+  const loadMemberNames = async () => {
+    try {
+      const { data } = await tripAPI.members(trip._id);
+      const map = {};
+      (data.members || []).forEach((m) => {
+        if (m.user?._id) map[m.user._id] = m.user.name;
+      });
+      setMembersById(map);
+    } catch (err) {
+      // non-fatal — markers fall back to a generic label
+    }
+  };
+
+  // Fetch a real, road-following route to the destination once we have both
+  // our own position and a destination with coordinates. Only fetched once
+  // (not on every GPS tick) to avoid hammering the routing service.
+  useEffect(() => {
+    if (!currentLocation || !trip?.destination?.lat || !trip?.destination?.lng || routeCoordinates) return;
+
+    let isCurrent = true;
+    fetchRoadRoute(currentLocation, trip.destination).then((coords) => {
+      if (isCurrent && coords) setRouteCoordinates(coords);
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLocation, trip?.destination]);
 
   const clearLocationTimeout = () => {
     if (locationTimeoutRef.current) {
@@ -217,12 +316,34 @@ export default function TripMapScreen({ route, navigation }) {
     }
   };
 
+  const handleEndTrip = () => {
+    Alert.alert("End this trip?", "This will end the trip for everyone. This can't be undone.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End Trip",
+        style: "destructive",
+        onPress: async () => {
+          setEndingTrip(true);
+          try {
+            await tripAPI.end(trip._id);
+            navigation.navigate("Home");
+          } catch (err) {
+            Alert.alert("Could not end trip", err?.response?.data?.message || "Please try again.");
+          } finally {
+            setEndingTrip(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const memberMarkers = Object.entries(members)
     .filter(([, location]) => location?.lat && location?.lng)
-    .map(([, location]) => ({
+    .map(([userId, location]) => ({
       latitude: location.lat,
       longitude: location.lng,
       sos: !!location.sos,
+      name: membersById[userId] || "Trip member",
     }));
 
   const tripHeaderCard = (
@@ -230,13 +351,18 @@ export default function TripMapScreen({ route, navigation }) {
       <View style={styles.tripCard}>
         <View style={{ flex: 1 }}>
           <Text style={styles.tripName} numberOfLines={1}>{trip?.name || "Trip"}</Text>
-          <Text style={styles.memberCountText}>{memberMarkers.length} on this trip</Text>
+          <Text style={styles.memberCountText}>{memberMarkers.length + 1} on this trip</Text>
         </View>
         <TouchableOpacity onPress={handleShareCode} style={styles.codeChip}>
           <Text style={styles.codeChipLabel}>CODE</Text>
           <Text style={styles.codeChipValue}>{trip?.joinCode || "---"}</Text>
         </TouchableOpacity>
       </View>
+      {isOwner && (
+        <TouchableOpacity style={styles.endTripChip} onPress={handleEndTrip} disabled={endingTrip}>
+          <Text style={styles.endTripChipText}>{endingTrip ? "Ending..." : "End Trip"}</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 
@@ -257,6 +383,8 @@ export default function TripMapScreen({ route, navigation }) {
     center: currentLocation || region,
     selfLocation: currentLocation,
     members: memberMarkers,
+    destination: trip?.destination,
+    routeCoordinates,
   });
 
   const statusOverlay =
@@ -293,7 +421,7 @@ export default function TripMapScreen({ route, navigation }) {
 
       <View style={styles.mapArea}>
         <WebView
-          key={`${currentLocation?.latitude || region.latitude}-${currentLocation?.longitude || region.longitude}-${memberMarkers.length}`}
+          key={`${currentLocation?.latitude || region.latitude}-${currentLocation?.longitude || region.longitude}-${memberMarkers.length}-${routeCoordinates ? routeCoordinates.length : 0}`}
           source={{ html: mapHtml }}
           originWhitelist={["*"]}
           javaScriptEnabled
@@ -366,6 +494,16 @@ const styles = StyleSheet.create({
   },
   codeChipLabel: { fontSize: 9, fontWeight: "700", color: "#818CF8", letterSpacing: 1 },
   codeChipValue: { fontSize: 14, fontWeight: "800", color: "#4F46E5", marginTop: 1 },
+  endTripChip: {
+    alignSelf: "flex-end",
+    backgroundColor: "#FEE2E2",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8,
+    marginRight: 16,
+  },
+  endTripChipText: { color: "#DC2626", fontWeight: "700", fontSize: 12 },
   alertBanner: {
     position: "absolute",
     top: 100,

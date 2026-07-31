@@ -1,4 +1,3 @@
-
 import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
@@ -225,7 +224,7 @@ export default function ExpensesScreen({ route }) {
                     {expense.description || expense.category}
                   </Text>
                   <Text style={styles.expensePaidBy}>
-                    Paid by {expense.paidBy?.name === user?.name ? "you" : expense.paidBy?.name || "someone"}
+                    Paid by {expense.paidBy?._id === user?.id ? "you" : expense.paidBy?.name || "someone"}
                   </Text>
                 </View>
                 <Text style={styles.expenseAmount}>{formatCurrency(expense.amount)}</Text>

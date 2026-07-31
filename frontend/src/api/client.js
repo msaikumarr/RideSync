@@ -1,8 +1,8 @@
 import axios from 'axios';
 import { getToken } from '../utils/storage';
 
-// Backend URL for your device. Using your machine IP so physical devices can reach it.
-const API_BASE_URL = (typeof process !== 'undefined' && process.env.API_BASE_URL) || 'http://10.242.228.73:5000/api';
+// Update this to your backend URL (see ../../.env.example)
+const API_BASE_URL = 'http://10.242.228.73:5000/api';
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -19,18 +19,18 @@ client.interceptors.request.use(async (config) => {
 
 export const authAPI = {
   register: (data) => client.post('/register', data),
-  login: (data) => client.post('/login', data)
+  login: (data) => client.post('/login', data),
+  forgotPassword: (email) => client.post('/forgot-password', { email }),
+  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword })
 };
-// forgot password
-authAPI.forgotPassword = (data) => client.post('/forgot-password', data);
-authAPI.resetPassword = (data) => client.post('/reset-password', data);
-authAPI.verifyOtp = (data) => client.post('/verify-otp', data);
 
 export const tripAPI = {
   create: (data) => client.post('/trip/create', data),
   join: (joinCode) => client.post('/trip/join', { joinCode }),
   members: (tripId) => client.get(`/trip/${tripId}/members`),
-  end: (tripId) => client.post(`/trip/${tripId}/end`)
+  end: (tripId) => client.post(`/trip/${tripId}/end`),
+  active: () => client.get('/trip/active'),
+  history: () => client.get('/trip/history')
 };
 
 export const locationAPI = {

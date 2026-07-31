@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -8,25 +8,88 @@ import {
   Alert,
   SafeAreaView,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 import { tripAPI } from "../api/client";
 
 export default function HomeScreen({ navigation }) {
   const { user, logout } = useAuth();
   const [tripName, setTripName] = useState("");
+  const [destinationName, setDestinationName] = useState("");
+  const [destinationCoords, setDestinationCoords] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const [activeTrip, setActiveTrip] = useState(null);
+  const [checkingActiveTrip, setCheckingActiveTrip] = useState(true);
+
+  // Every time Home comes into focus (including right after navigating back
+  // from TripMap), check whether the user already has a live trip so it's
+  // never "lost" just because they left the screen.
+  useFocusEffect(
+    useCallback(() => {
+      let isCurrent = true;
+      setCheckingActiveTrip(true);
+
+      tripAPI
+        .active()
+        .then(({ data }) => {
+          if (isCurrent) setActiveTrip(data.trip || null);
+        })
+        .catch(() => {
+          if (isCurrent) setActiveTrip(null);
+        })
+        .finally(() => {
+          if (isCurrent) setCheckingActiveTrip(false);
+        });
+
+      return () => {
+        isCurrent = false;
+      };
+    }, [])
+  );
+
+  const parseDestination = () => {
+    if (!destinationName.trim() && !destinationCoords.trim()) return undefined;
+
+    const destination = { name: destinationName.trim() || undefined };
+
+    if (destinationCoords.trim()) {
+      const parts = destinationCoords.split(",").map((p) => Number(p.trim()));
+      if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
+        destination.lat = parts[0];
+        destination.lng = parts[1];
+      } else {
+        return "invalid";
+      }
+    }
+
+    return destination;
+  };
 
   const handleCreateTrip = async () => {
     if (!tripName.trim()) {
       Alert.alert("Trip name required", "Give your trip a name first.");
       return;
     }
+
+    const destination = parseDestination();
+    if (destination === "invalid") {
+      Alert.alert(
+        "Invalid coordinates",
+        "Enter destination coordinates as \"latitude, longitude\" (e.g. 17.6868, 83.2185), or leave it blank."
+      );
+      return;
+    }
+
     setBusy(true);
     try {
-      const { data } = await tripAPI.create({ name: tripName.trim() });
+      const { data } = await tripAPI.create({ name: tripName.trim(), destination });
       setTripName("");
+      setDestinationName("");
+      setDestinationCoords("");
       navigation.navigate("TripMap", { trip: data.trip });
     } catch (err) {
       Alert.alert("Could not create trip", err?.response?.data?.message || "Something went wrong.");
@@ -73,60 +136,103 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.subtitle}>Start a new ride or hop into one your group already started.</Text>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <View style={[styles.cardBadge, { backgroundColor: "#EEF2FF" }]}>
-              <Text style={[styles.cardBadgeText, { color: "#4F46E5" }]}>+</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Start a new trip</Text>
-              <Text style={styles.cardHint}>You'll get a code to share with your group</Text>
-            </View>
+        {checkingActiveTrip ? (
+          <View style={[styles.card, styles.activeTripLoading]}>
+            <ActivityIndicator color="#4F46E5" />
           </View>
-
-          <Text style={styles.label}>TRIP NAME</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Weekend Ride to Araku"
-            placeholderTextColor="#94A3B8"
-            value={tripName}
-            onChangeText={setTripName}
-          />
-
-          <TouchableOpacity style={styles.button} onPress={handleCreateTrip} disabled={busy}>
-            <Text style={styles.buttonText}>{busy ? "Creating..." : "Create Trip"}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <View style={[styles.cardBadge, { backgroundColor: "#ECFEFF" }]}>
-              <Text style={[styles.cardBadgeText, { color: "#0891B2" }]}>#</Text>
+        ) : activeTrip ? (
+          <View style={[styles.card, styles.activeTripCard]}>
+            <View style={styles.activeTripBadge}>
+              <Text style={styles.activeTripBadgeText}>LIVE</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>Join a trip</Text>
-              <Text style={styles.cardHint}>Ask the trip owner for their code</Text>
-            </View>
+            <Text style={styles.activeTripTitle} numberOfLines={1}>{activeTrip.name}</Text>
+            <Text style={styles.activeTripHint}>You still have a trip in progress — jump back in.</Text>
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => navigation.navigate("TripMap", { trip: activeTrip })}
+            >
+              <Text style={styles.buttonText}>Resume Trip</Text>
+            </TouchableOpacity>
           </View>
+        ) : null}
 
-          <Text style={styles.label}>JOIN CODE</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 7K2XQP"
-            placeholderTextColor="#94A3B8"
-            autoCapitalize="characters"
-            value={joinCode}
-            onChangeText={setJoinCode}
-          />
+        {!activeTrip && !checkingActiveTrip && (
+          <>
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <View style={[styles.cardBadge, { backgroundColor: "#EEF2FF" }]}>
+                  <Text style={[styles.cardBadgeText, { color: "#4F46E5" }]}>+</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>Start a new trip</Text>
+                  <Text style={styles.cardHint}>You'll get a code to share with your group</Text>
+                </View>
+              </View>
 
-          <TouchableOpacity style={[styles.button, styles.buttonTeal]} onPress={handleJoinTrip} disabled={busy}>
-            <Text style={styles.buttonText}>{busy ? "Joining..." : "Join Trip"}</Text>
-          </TouchableOpacity>
-        </View>
+              <Text style={styles.label}>TRIP NAME</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Weekend Ride to Araku"
+                placeholderTextColor="#94A3B8"
+                value={tripName}
+                onChangeText={setTripName}
+              />
 
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>No active trips yet — create or join one above</Text>
-        </View>
+              <Text style={styles.label}>FINAL DESTINATION (OPTIONAL)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Araku Valley"
+                placeholderTextColor="#94A3B8"
+                value={destinationName}
+                onChangeText={setDestinationName}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Coordinates: latitude, longitude"
+                placeholderTextColor="#94A3B8"
+                value={destinationCoords}
+                onChangeText={setDestinationCoords}
+              />
+              <Text style={styles.fieldHint}>
+                Adding coordinates shows a route line to the destination on the trip map.
+              </Text>
+
+              <TouchableOpacity style={styles.button} onPress={handleCreateTrip} disabled={busy}>
+                <Text style={styles.buttonText}>{busy ? "Creating..." : "Create Trip"}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.cardTitleRow}>
+                <View style={[styles.cardBadge, { backgroundColor: "#ECFEFF" }]}>
+                  <Text style={[styles.cardBadgeText, { color: "#0891B2" }]}>#</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>Join a trip</Text>
+                  <Text style={styles.cardHint}>Ask the trip owner for their code</Text>
+                </View>
+              </View>
+
+              <Text style={styles.label}>JOIN CODE</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 7K2XQP"
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="characters"
+                value={joinCode}
+                onChangeText={setJoinCode}
+              />
+
+              <TouchableOpacity style={[styles.button, styles.buttonTeal]} onPress={handleJoinTrip} disabled={busy}>
+                <Text style={styles.buttonText}>{busy ? "Joining..." : "Join Trip"}</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        <TouchableOpacity style={styles.historyLink} onPress={() => navigation.navigate("TripHistory")}>
+          <Text style={styles.historyLinkText}>View trip history →</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -234,6 +340,21 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
+  activeTripLoading: { alignItems: "center", paddingVertical: 30 },
+
+  activeTripCard: { borderWidth: 2, borderColor: "#4F46E5" },
+  activeTripBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#DCFCE7",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 10,
+  },
+  activeTripBadgeText: { color: "#16A34A", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  activeTripTitle: { fontSize: 20, fontWeight: "900", color: "#1E293B" },
+  activeTripHint: { color: "#64748B", fontSize: 13, marginTop: 4, marginBottom: 18 },
+
   cardTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -283,7 +404,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     color: "#1E293B",
     fontSize: 16,
+    marginBottom: 10,
+  },
+
+  fieldHint: {
+    color: "#94A3B8",
+    fontSize: 11.5,
     marginBottom: 18,
+    marginTop: -2,
   },
 
   button: {
@@ -310,13 +438,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  emptyState: {
-    alignItems: "center",
-    marginTop: 10,
-  },
-
-  emptyStateText: {
-    color: "#94A3B8",
-    fontSize: 13,
-  },
+  historyLink: { alignItems: "center", marginTop: 4, marginBottom: 20 },
+  historyLinkText: { color: "#4F46E5", fontWeight: "700", fontSize: 14 },
 });

@@ -11,6 +11,7 @@ import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import HomeScreen from '../screens/HomeScreen';
 import TripMapScreen from '../screens/TripMapScreen';
 import ExpensesScreen from '../screens/ExpensesScreen';
+import TripHistoryScreen from '../screens/TripHistoryScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -19,8 +20,8 @@ export default function AppNavigator() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#22C55E" />
+      <View style={{ flex: 1, backgroundColor: '#F4F7FE', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#4F46E5" />
       </View>
     );
   }
@@ -33,6 +34,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="TripMap" component={TripMapScreen} />
             <Stack.Screen name="Expenses" component={ExpensesScreen} />
+            <Stack.Screen name="TripHistory" component={TripHistoryScreen} />
           </>
         ) : (
           <>
