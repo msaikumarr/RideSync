@@ -9,11 +9,17 @@ import {
   SafeAreaView,
   ScrollView,
   ActivityIndicator,
+  Modal,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 import { tripAPI } from "../api/client";
 import { saveActiveTrip, getActiveTripCache, clearActiveTripCache } from "../utils/storage";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const MENU_WIDTH = Math.min(300, SCREEN_WIDTH * 0.8);
 
 // Nominatim: OpenStreetMap's free geocoding service — no API key required.
 // Usage policy caps this at ~1 request/second and asks for a descriptive
@@ -41,6 +47,30 @@ export default function HomeScreen({ navigation }) {
 
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const [menuVisible, setMenuVisible] = useState(false);
+  const menuSlide = useRef(new Animated.Value(MENU_WIDTH)).current;
+
+  const openMenu = () => {
+    setMenuVisible(true);
+    Animated.timing(menuSlide, { toValue: 0, duration: 220, useNativeDriver: true }).start();
+  };
+
+  const closeMenu = () => {
+    Animated.timing(menuSlide, { toValue: MENU_WIDTH, duration: 200, useNativeDriver: true }).start(() => {
+      setMenuVisible(false);
+    });
+  };
+
+  const handleMenuHistory = () => {
+    closeMenu();
+    navigation.navigate("TripHistory");
+  };
+
+  const handleMenuLogout = () => {
+    closeMenu();
+    logout();
+  };
 
   // activeTrip starts as "unknown" (undefined) rather than null, so we can
   // tell the difference between "haven't checked yet" and "confirmed there
@@ -186,8 +216,10 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <Text style={styles.logo}>RideSync</Text>
-            <TouchableOpacity onPress={logout} style={styles.logoutChip}>
-              <Text style={styles.logoutChipText}>Log out</Text>
+            <TouchableOpacity onPress={openMenu} style={styles.menuButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <View style={styles.menuBar} />
+              <View style={styles.menuBar} />
+              <View style={styles.menuBar} />
             </TouchableOpacity>
           </View>
 
@@ -310,11 +342,38 @@ export default function HomeScreen({ navigation }) {
             </View>
           </>
         ) : null}
-
-        <TouchableOpacity style={styles.historyLink} onPress={() => navigation.navigate("TripHistory")}>
-          <Text style={styles.historyLinkText}>View trip history →</Text>
-        </TouchableOpacity>
       </ScrollView>
+
+      <Modal visible={menuVisible} transparent animationType="none" onRequestClose={closeMenu}>
+        <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={closeMenu}>
+          <Animated.View
+            style={[styles.menuPanel, { transform: [{ translateX: menuSlide }] }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <SafeAreaView style={{ flex: 1 }}>
+              <View style={styles.menuHeader}>
+                <View style={styles.menuAvatar}>
+                  <Text style={styles.menuAvatarText}>{firstName[0]?.toUpperCase() || "R"}</Text>
+                </View>
+                <Text style={styles.menuName} numberOfLines={1}>{user?.name || "Rider"}</Text>
+                <Text style={styles.menuEmail} numberOfLines={1}>{user?.email || ""}</Text>
+              </View>
+
+              <View style={styles.menuDivider} />
+
+              <TouchableOpacity style={styles.menuItem} onPress={handleMenuHistory}>
+                <Text style={styles.menuItemText}>🕓  Trip History</Text>
+              </TouchableOpacity>
+
+              <View style={{ flex: 1 }} />
+
+              <TouchableOpacity style={styles.menuItem} onPress={handleMenuLogout}>
+                <Text style={[styles.menuItemText, styles.menuLogoutText]}>⎋  Log Out</Text>
+              </TouchableOpacity>
+            </SafeAreaView>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -376,11 +435,14 @@ const styles = StyleSheet.create({
     color: "#4F46E5",
   },
 
-  logoutChip: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  menuButton: {
+    width: 40,
+    height: 40,
     borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
     shadowColor: "#6366F1",
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -388,11 +450,37 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
 
-  logoutChipText: {
-    color: "#EF4444",
-    fontWeight: "700",
-    fontSize: 13,
+  menuBar: { width: 16, height: 2, borderRadius: 1, backgroundColor: "#4F46E5" },
+
+  menuBackdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.4)", flexDirection: "row" },
+  menuPanel: {
+    marginLeft: "auto",
+    width: MENU_WIDTH,
+    height: "100%",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    shadowOffset: { width: -4, height: 0 },
+    elevation: 12,
   },
+  menuHeader: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20 },
+  menuAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#EEF2FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  menuAvatarText: { color: "#4F46E5", fontWeight: "800", fontSize: 20 },
+  menuName: { fontSize: 17, fontWeight: "800", color: "#1E293B" },
+  menuEmail: { fontSize: 12.5, color: "#64748B", marginTop: 2 },
+  menuDivider: { height: 1, backgroundColor: "#F1F5F9" },
+  menuItem: { paddingHorizontal: 24, paddingVertical: 18 },
+  menuItemText: { fontSize: 15, fontWeight: "700", color: "#1E293B" },
+  menuLogoutText: { color: "#EF4444" },
 
   heading: {
     marginTop: 20,
@@ -548,7 +636,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 16,
   },
-
-  historyLink: { alignItems: "center", marginTop: 4, marginBottom: 20 },
-  historyLinkText: { color: "#4F46E5", fontWeight: "700", fontSize: 14 },
 });

@@ -22,6 +22,7 @@ const formatDate = (value) => {
 export default function TripHistoryScreen({ navigation }) {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -62,6 +63,35 @@ export default function TripHistoryScreen({ navigation }) {
     } catch (e) {
       // ignore share cancellation
     }
+  };
+
+  const handleDelete = (trip) => {
+    if (trip.status === "active") {
+      Alert.alert(
+        "Trip still active",
+        "End this trip before removing it from your history — you (and everyone else on it) need to be able to find it while it's live."
+      );
+      return;
+    }
+
+    Alert.alert("Remove this trip?", `"${trip.name}" will be removed from your history. This can't be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          setDeletingId(trip._id);
+          try {
+            await tripAPI.removeFromHistory(trip._id);
+            setTrips((current) => current.filter((t) => t._id !== trip._id));
+          } catch (err) {
+            Alert.alert("Couldn't remove trip", err?.response?.data?.message || "Please try again.");
+          } finally {
+            setDeletingId(null);
+          }
+        },
+      },
+    ]);
   };
 
   if (loading) {
@@ -128,6 +158,15 @@ export default function TripHistoryScreen({ navigation }) {
                 <TouchableOpacity style={styles.shareAction} onPress={() => handleShare(trip)}>
                   <Text style={styles.shareActionText}>Share</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteAction}
+                  onPress={() => handleDelete(trip)}
+                  disabled={deletingId === trip._id}
+                >
+                  <Text style={styles.deleteActionText}>
+                    {deletingId === trip._id ? "Removing..." : "Remove"}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           ))
@@ -189,7 +228,7 @@ const styles = StyleSheet.create({
   dateText: { color: "#64748B", fontSize: 13, marginTop: 8 },
   destinationText: { color: "#475569", fontSize: 13, marginTop: 4 },
 
-  cardActions: { flexDirection: "row", marginTop: 16, gap: 10 },
+  cardActions: { flexDirection: "row", flexWrap: "wrap", marginTop: 16, gap: 10 },
   primaryAction: {
     backgroundColor: "#4F46E5",
     borderRadius: 14,
@@ -211,4 +250,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   shareActionText: { color: "#475569", fontWeight: "700", fontSize: 13 },
+  deleteAction: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  deleteActionText: { color: "#DC2626", fontWeight: "700", fontSize: 13 },
 });

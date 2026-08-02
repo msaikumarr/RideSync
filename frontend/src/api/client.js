@@ -30,7 +30,8 @@ export const tripAPI = {
   members: (tripId) => client.get(`/trip/${tripId}/members`),
   end: (tripId) => client.post(`/trip/${tripId}/end`),
   active: () => client.get('/trip/active'),
-  history: () => client.get('/trip/history')
+  history: () => client.get('/trip/history'),
+  removeFromHistory: (tripId) => client.delete(`/trip/${tripId}/history`)
 };
 
 export const locationAPI = {

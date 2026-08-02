@@ -138,4 +138,44 @@ const endTrip = async (req, res) => {
   }
 };
 
-module.exports = { createTrip, joinTrip, getTripMembers, endTrip, getActiveTrip, getTripHistory };
+// DELETE /trip/:tripId/history
+// Removes the trip from the CALLER's own history view only (deletes their
+// TripMember record). It does not touch the underlying Trip, Expenses, or
+// other members' records — so this can't be used to wipe a trip out from
+// under people who are still relying on it. Only allowed once a trip has
+// ended, so people can't accidentally hide a trip they're still actively on.
+const removeFromHistory = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+
+    const trip = await Trip.findById(tripId);
+    if (!trip) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+
+    if (trip.status === 'active') {
+      return res.status(400).json({
+        message: 'This trip is still active. End it before removing it from your history.'
+      });
+    }
+
+    const membership = await TripMember.findOneAndDelete({ trip: tripId, user: req.user.id });
+    if (!membership) {
+      return res.status(404).json({ message: 'You were not part of this trip' });
+    }
+
+    res.status(200).json({ message: 'Trip removed from your history' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to remove trip', error: err.message });
+  }
+};
+
+module.exports = {
+  createTrip,
+  joinTrip,
+  getTripMembers,
+  endTrip,
+  getActiveTrip,
+  getTripHistory,
+  removeFromHistory
+};
