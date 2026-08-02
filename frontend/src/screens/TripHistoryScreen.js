@@ -56,7 +56,7 @@ export default function TripHistoryScreen({ navigation }) {
 
     try {
       await Share.share({
-        message: `${trip.name} — ${status} on RideSync (${dateRange}).${destinationLine}${
+        message: `${trip.name} — ${status} on M-Sync (${dateRange}).${destinationLine}${
           trip.status === "active" ? `\nJoin code: ${trip.joinCode}` : ""
         }`,
       });

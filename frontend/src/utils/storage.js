@@ -4,6 +4,8 @@ const TOKEN_KEY = 'ridesync_token';
 const USER_KEY = 'ridesync_user';
 const ACTIVE_TRIP_KEY = 'ridesync_active_trip';
 
+const getAutoSosDeadlineKey = (tripId) => `ridesync_auto_sos_deadline_${tripId}`;
+
 export const saveSession = async (token, user) => {
   await SecureStore.setItemAsync(TOKEN_KEY, token);
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
@@ -41,4 +43,21 @@ export const getActiveTripCache = async () => {
 
 export const clearActiveTripCache = async () => {
   await SecureStore.deleteItemAsync(ACTIVE_TRIP_KEY);
+};
+
+export const saveAutoSosDeadline = async (tripId, deadlineMs) => {
+  if (!tripId || !deadlineMs) return;
+  await SecureStore.setItemAsync(getAutoSosDeadlineKey(tripId), String(deadlineMs));
+};
+
+export const getAutoSosDeadline = async (tripId) => {
+  if (!tripId) return null;
+
+  const raw = await SecureStore.getItemAsync(getAutoSosDeadlineKey(tripId));
+  return raw ? Number(raw) : null;
+};
+
+export const clearAutoSosDeadline = async (tripId) => {
+  if (!tripId) return;
+  await SecureStore.deleteItemAsync(getAutoSosDeadlineKey(tripId));
 };

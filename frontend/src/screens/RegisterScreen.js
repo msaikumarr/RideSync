@@ -22,8 +22,8 @@ export default function RegisterScreen({ navigation }) {
   const [submitting, setSubmitting] = useState(false);
 
   const handleRegister = async () => {
-    if (!name || !email || !password) {
-      Alert.alert("Missing Information", "Name, Email and Password are required.");
+    if (!name || !email || !password || !phone.trim()) {
+      Alert.alert("Missing Information", "Name, Email, Phone and Password are required.");
       return;
     }
 
@@ -54,7 +54,7 @@ export default function RegisterScreen({ navigation }) {
       >
 
         <View style={styles.header}>
-          <Text style={styles.heading}>RideSync</Text>
+          <Text style={styles.heading}>M-Sync</Text>
           
           <Text style={styles.heading}>
             Create Account
@@ -92,7 +92,7 @@ export default function RegisterScreen({ navigation }) {
 
           <TextInput
             style={styles.input}
-            placeholder="Phone Number (Optional)"
+            placeholder="Phone Number"
             placeholderTextColor="#94A3B8"
             keyboardType="phone-pad"
             value={phone}

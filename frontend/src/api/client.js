@@ -21,7 +21,11 @@ export const authAPI = {
   register: (data) => client.post('/register', data),
   login: (data) => client.post('/login', data),
   forgotPassword: (email) => client.post('/forgot-password', { email }),
-  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword })
+  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword }),
+  getProfile: () => client.get('/me'),
+  updateProfile: (data) => client.put('/me', data),
+  changePassword: (currentPassword, newPassword) =>
+    client.post('/change-password', { currentPassword, newPassword })
 };
 
 export const tripAPI = {

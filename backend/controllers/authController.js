@@ -13,9 +13,10 @@ const generateToken = (user) => {
 const register = async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
+    const trimmedPhone = phone?.trim();
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: 'Name, email and password are required' });
+    if (!name || !email || !password || !trimmedPhone) {
+      return res.status(400).json({ message: 'Name, email, password and phone are required' });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -29,7 +30,7 @@ const register = async (req, res) => {
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
-      phone
+      phone: trimmedPhone
     });
 
     const token = generateToken(user);
@@ -73,7 +74,98 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { register, login, forgotPassword, resetPassword };
+module.exports = {
+  register,
+  login,
+  forgotPassword,
+  resetPassword,
+  getProfile,
+  updateProfile,
+  changePassword
+};
+
+// GET /me
+async function getProfile(req, res) {
+  try {
+    const user = await User.findById(req.user.id).select('-password -resetPasswordToken -resetPasswordExpires');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.status(200).json({ user });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not load profile', error: err.message });
+  }
+}
+
+// PUT /me
+async function updateProfile(req, res) {
+  try {
+    const { name, phone, emergencyContact } = req.body;
+    const trimmedPhone = phone?.trim();
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (name !== undefined) user.name = name;
+    if (phone !== undefined) {
+      if (!trimmedPhone) {
+        return res.status(400).json({ message: 'Phone is required' });
+      }
+
+      user.phone = trimmedPhone;
+    }
+    if (emergencyContact !== undefined) {
+      user.emergencyContact = {
+        name: emergencyContact.name || undefined,
+        phone: emergencyContact.phone || undefined
+      };
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Profile updated',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        emergencyContact: user.emergencyContact
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update profile', error: err.message });
+  }
+}
+
+// POST /change-password
+async function changePassword(req, res) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.status(200).json({ message: 'Password changed successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not change password', error: err.message });
+  }
+}
 
 // POST /forgot-password
 // NOTE: This project has no email service wired up yet. In place of emailing

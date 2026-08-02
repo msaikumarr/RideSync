@@ -8,15 +8,41 @@ import {
   Share,
   ActivityIndicator,
   SafeAreaView,
+  Vibration,
 } from "react-native";
 import * as Location from "expo-location";
 import { WebView } from "react-native-webview";
 import { getSocket } from "../utils/socket";
-import { tripAPI } from "../api/client";
+import { sosAPI, tripAPI } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import {
+  clearActiveTripCache,
+  clearAutoSosDeadline,
+  getAutoSosDeadline,
+  saveAutoSosDeadline,
+} from "../utils/storage";
 import SOSButton from "../components/SOSButton";
 
 const LOCATION_TIMEOUT_MS = 20000;
+const INACTIVITY_TIMEOUT_MS = 8 * 60 * 1000;
+const MOVEMENT_THRESHOLD_METERS = 15;
+
+const distanceMeters = (a, b) => {
+  if (!a || !b) return 0;
+
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const deltaLat = toRadians(b.latitude - a.latitude);
+  const deltaLng = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+
+  const haversine =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+};
 
 const buildMapHtml = ({ center, selfLocation, selfName, members, destination, routeCoordinates }) => {
   const payload = JSON.stringify({ center, selfLocation, selfName, members, destination, routeCoordinates });
@@ -155,9 +181,93 @@ export default function TripMapScreen({ route, navigation }) {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [members, setMembers] = useState({});
   const [membersById, setMembersById] = useState({});
+  const [mySosActive, setMySosActive] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState(null);
   const [separationAlert, setSeparationAlert] = useState(null);
   const [locationStatus, setLocationStatus] = useState("loading");
+  const inactivityTimeoutRef = useRef(null);
+  const inactivityTickRef = useRef(null);
+  const inactivityDeadlineRef = useRef(null);
+  const lastMovementLocationRef = useRef(null);
+  const latestLocationRef = useRef(null);
+  const autoSosInFlightRef = useRef(false);
+  const [autoSosSecondsRemaining, setAutoSosSecondsRemaining] = useState(null);
+  const [inactivityHydrated, setInactivityHydrated] = useState(false);
+
+  const vibrateSOS = () => {
+    Vibration.vibrate([0, 250, 120, 250]);
+  };
+
+  const clearInactivityTimer = () => {
+    if (inactivityTimeoutRef.current) {
+      clearTimeout(inactivityTimeoutRef.current);
+      inactivityTimeoutRef.current = null;
+    }
+
+    if (inactivityTickRef.current) {
+      clearInterval(inactivityTickRef.current);
+      inactivityTickRef.current = null;
+    }
+
+    inactivityDeadlineRef.current = null;
+    setAutoSosSecondsRemaining(null);
+  };
+
+  const startInactivityCountdown = async (deadlineMs = Date.now() + INACTIVITY_TIMEOUT_MS) => {
+    clearInactivityTimer();
+
+    inactivityDeadlineRef.current = deadlineMs;
+    const remainingMs = Math.max(0, deadlineMs - Date.now());
+    setAutoSosSecondsRemaining(Math.ceil(remainingMs / 1000));
+
+    await saveAutoSosDeadline(trip?._id, deadlineMs);
+
+    inactivityTickRef.current = setInterval(() => {
+      const remainingMs = Math.max(0, inactivityDeadlineRef.current - Date.now());
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      setAutoSosSecondsRemaining(remainingSeconds);
+
+      if (remainingMs <= 0) {
+        clearInactivityTimer();
+        triggerAutoSOS();
+      }
+    }, 1000);
+
+    inactivityTimeoutRef.current = setTimeout(() => {
+      clearInactivityTimer();
+      triggerAutoSOS();
+    }, INACTIVITY_TIMEOUT_MS);
+  };
+
+  const triggerAutoSOS = async () => {
+    if (autoSosInFlightRef.current || mySosActive || !trip?._id) return;
+
+    const location = latestLocationRef.current;
+    if (!location) return;
+
+    autoSosInFlightRef.current = true;
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Location permission required", "M-Sync needs location access to send SOS.");
+        return;
+      }
+
+      await sosAPI.trigger({
+        tripId: trip._id,
+        lat: location.latitude,
+        lng: location.longitude,
+      });
+      setMySosActive(true);
+      vibrateSOS();
+      await clearAutoSosDeadline(trip._id);
+      Alert.alert("SOS activated", "No movement was detected for 8 minutes, so SOS was sent automatically.");
+    } catch (err) {
+      Alert.alert("Could not send SOS", "Please try again.");
+    } finally {
+      autoSosInFlightRef.current = false;
+    }
+  };
 
   useEffect(() => {
     if (!trip?._id) {
@@ -181,6 +291,19 @@ export default function TripMapScreen({ route, navigation }) {
 
       socket.on("locationUpdate", ({ userId, lat, lng }) => {
         setMembers((prev) => ({ ...prev, [userId]: { ...prev[userId], lat, lng } }));
+        // If we don't have a name or cached location for this person yet,
+        // refresh the member list so their marker can render immediately.
+        setMembersById((prevNames) => {
+          if (!prevNames[userId] || !members[userId]?.lat) loadTripMembers();
+          return prevNames;
+        });
+      });
+
+      // Fired whenever anyone (including someone brand new) joins the trip's
+      // room — refresh the member list so their current location is visible
+      // even if they joined before this device opened the map.
+      socket.on("memberJoined", () => {
+        loadTripMembers();
       });
 
       socket.on("separationAlert", ({ message }) => {
@@ -190,39 +313,138 @@ export default function TripMapScreen({ route, navigation }) {
 
       socket.on("sosTriggered", ({ userId, lat, lng }) => {
         setMembers((prev) => ({ ...prev, [userId]: { ...prev[userId], lat, lng, sos: true } }));
+        const isSelf = String(userId) === String(user?.id);
+
+        if (isSelf) {
+          setMySosActive(true);
+          vibrateSOS();
+          return;
+        }
+
+        vibrateSOS();
         Alert.alert("SOS Alert", "A trip member has triggered an emergency alert.");
       });
 
       socket.on("sosCleared", ({ userId }) => {
         setMembers((prev) => ({ ...prev, [userId]: { ...prev[userId], sos: false } }));
+        if (String(userId) === String(user?.id)) setMySosActive(false);
       });
     }
 
     acquireLocation(socket);
-    loadMemberNames();
+    loadTripMembers();
 
     return () => {
       if (socket) {
         socket.emit("leaveRoom", { tripId: trip._id });
         socket.off("connect");
         socket.off("locationUpdate");
+        socket.off("memberJoined");
         socket.off("separationAlert");
         socket.off("sosTriggered");
         socket.off("sosCleared");
       }
       if (locationTimeoutRef.current) clearTimeout(locationTimeoutRef.current);
+      clearInactivityTimer();
       if (watchSubscription.current) watchSubscription.current.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip?._id]);
 
-  const loadMemberNames = async () => {
+  useEffect(() => {
+    let isCurrent = true;
+
+    const restoreCountdown = async () => {
+      setInactivityHydrated(false);
+
+      if (!trip?._id) {
+        if (isCurrent) setInactivityHydrated(true);
+        return;
+      }
+
+      try {
+        const savedDeadline = await getAutoSosDeadline(trip._id);
+
+        if (!isCurrent) return;
+
+        if (savedDeadline && savedDeadline > Date.now()) {
+          await startInactivityCountdown(savedDeadline);
+        } else if (savedDeadline && savedDeadline <= Date.now()) {
+          await clearAutoSosDeadline(trip._id);
+          clearInactivityTimer();
+          if (currentLocation) {
+            await triggerAutoSOS();
+          }
+        }
+      } finally {
+        if (isCurrent) setInactivityHydrated(true);
+      }
+    };
+
+    restoreCountdown();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [trip?._id]);
+
+  useEffect(() => {
+    latestLocationRef.current = currentLocation;
+  }, [currentLocation]);
+
+  useEffect(() => {
+    if (!trip?._id || !currentLocation || locationStatus !== "ready" || !inactivityHydrated) {
+      clearInactivityTimer();
+      return;
+    }
+
+    if (mySosActive) {
+      clearInactivityTimer();
+      return;
+    }
+
+    const previousLocation = lastMovementLocationRef.current;
+
+    if (!previousLocation) {
+      lastMovementLocationRef.current = currentLocation;
+      if (!inactivityTimeoutRef.current && !inactivityDeadlineRef.current) {
+        startInactivityCountdown();
+      }
+      return;
+    }
+
+    const movedMeters = distanceMeters(previousLocation, currentLocation);
+    if (!inactivityTimeoutRef.current || movedMeters >= MOVEMENT_THRESHOLD_METERS) {
+      lastMovementLocationRef.current = currentLocation;
+      startInactivityCountdown();
+    }
+
+    return () => clearInactivityTimer();
+  }, [currentLocation, locationStatus, mySosActive, trip?._id]);
+
+  const loadTripMembers = async () => {
     try {
       const { data } = await tripAPI.members(trip._id);
       const map = {};
+      const nextMembers = {};
       (data.members || []).forEach((m) => {
-        if (m.user?._id) map[m.user._id] = m.user.name;
+        if (!m.user?._id) return;
+
+        map[m.user._id] = m.user.name;
+
+        if (String(m.user._id) === String(user?.id)) {
+          setMySosActive(!!m.sos?.active);
+        }
+
+        if (m.lastLocation?.lat !== undefined && m.lastLocation?.lng !== undefined) {
+          nextMembers[m.user._id] = {
+            lat: m.lastLocation.lat,
+            lng: m.lastLocation.lng,
+            sos: !!m.sos?.active,
+          };
+        }
       });
+      setMembers((current) => ({ ...nextMembers, ...current }));
       setMembersById(map);
     } catch (err) {
       // non-fatal — markers fall back to a generic label
@@ -319,7 +541,7 @@ export default function TripMapScreen({ route, navigation }) {
   const handleShareCode = async () => {
     if (!trip) return;
     try {
-      await Share.share({ message: `Join my RideSync trip "${trip.name}" with code: ${trip.joinCode}` });
+      await Share.share({ message: `Join my M-Sync trip "${trip.name}" with code: ${trip.joinCode}` });
     } catch (e) {
       // ignore share cancellation
     }
@@ -335,6 +557,8 @@ export default function TripMapScreen({ route, navigation }) {
           setEndingTrip(true);
           try {
             await tripAPI.end(trip._id);
+            await clearActiveTripCache();
+            await clearAutoSosDeadline(trip._id);
             navigation.navigate("Home");
           } catch (err) {
             Alert.alert("Could not end trip", err?.response?.data?.message || "Please try again.");
@@ -384,7 +608,17 @@ export default function TripMapScreen({ route, navigation }) {
       >
         <Text style={styles.expenseButtonText}>Expenses</Text>
       </TouchableOpacity>
-      <SOSButton tripId={trip?._id} />
+      <SOSButton
+        tripId={trip?._id}
+        isActive={mySosActive}
+        countdownSeconds={autoSosSecondsRemaining}
+        onTriggered={() => setMySosActive(true)}
+        onCleared={async () => {
+          setMySosActive(false);
+          await saveAutoSosDeadline(trip?._id, Date.now() + INACTIVITY_TIMEOUT_MS);
+          await startInactivityCountdown(Date.now() + INACTIVITY_TIMEOUT_MS);
+        }}
+      />
     </SafeAreaView>
   );
 

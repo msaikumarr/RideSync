@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Linking,
   SafeAreaView,
   ScrollView,
   ActivityIndicator,
@@ -31,7 +32,7 @@ const searchPlaces = async (query) => {
     query
   )}&format=json&limit=5&addressdetails=0`;
   const response = await fetch(url, {
-    headers: { "User-Agent": "RideSync/1.0 (student project)" },
+    headers: { "User-Agent": "M-Sync/1.0 (student project)" },
   });
   return response.json();
 };
@@ -47,6 +48,8 @@ export default function HomeScreen({ navigation }) {
 
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activeMembers, setActiveMembers] = useState([]);
+  const [membersLoading, setMembersLoading] = useState(false);
 
   const [menuVisible, setMenuVisible] = useState(false);
   const menuSlide = useRef(new Animated.Value(MENU_WIDTH)).current;
@@ -65,6 +68,16 @@ export default function HomeScreen({ navigation }) {
   const handleMenuHistory = () => {
     closeMenu();
     navigation.navigate("TripHistory");
+  };
+
+  const handleMenuProfile = () => {
+    closeMenu();
+    navigation.navigate("Profile");
+  };
+
+  const handleMenuAbout = () => {
+    closeMenu();
+    navigation.navigate("About");
   };
 
   const handleMenuLogout = () => {
@@ -118,6 +131,38 @@ export default function HomeScreen({ navigation }) {
     }, [])
   );
 
+  useEffect(() => {
+    if (!activeTrip?._id) {
+      setActiveMembers([]);
+      setMembersLoading(false);
+      return;
+    }
+
+    let isCurrent = true;
+
+    const loadActiveMembers = async () => {
+      setMembersLoading(true);
+      try {
+        const { data } = await tripAPI.members(activeTrip._id);
+        if (!isCurrent) return;
+
+        setActiveMembers((data.members || []).filter((member) => member.user));
+      } catch (err) {
+        if (isCurrent) setActiveMembers([]);
+      } finally {
+        if (isCurrent) setMembersLoading(false);
+      }
+    };
+
+    loadActiveMembers();
+    const intervalId = setInterval(loadActiveMembers, 15000);
+
+    return () => {
+      isCurrent = false;
+      clearInterval(intervalId);
+    };
+  }, [activeTrip?._id]);
+
   const handleDestinationQueryChange = (text) => {
     setDestinationQuery(text);
     setSelectedDestination(null);
@@ -156,6 +201,23 @@ export default function HomeScreen({ navigation }) {
     setSelectedDestination(null);
     setDestinationQuery("");
     setDestinationResults([]);
+  };
+
+  const handleCallMember = async (phone) => {
+    if (!phone) return;
+
+    const cleanedPhone = phone.replace(/[^0-9+]/g, "");
+    try {
+      const url = `tel:${cleanedPhone}`;
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        Alert.alert("Can't place call", "Your device can't open the phone dialer.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (err) {
+      Alert.alert("Can't place call", "Please try again.");
+    }
   };
 
   const parseDestination = () => {
@@ -215,7 +277,7 @@ export default function HomeScreen({ navigation }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <Text style={styles.logo}>RideSync</Text>
+            <Text style={styles.logo}>M-Sync</Text>
             <TouchableOpacity onPress={openMenu} style={styles.menuButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <View style={styles.menuBar} />
               <View style={styles.menuBar} />
@@ -234,6 +296,48 @@ export default function HomeScreen({ navigation }) {
             </View>
             <Text style={styles.activeTripTitle} numberOfLines={1}>{activeTrip.name}</Text>
             <Text style={styles.activeTripHint}>This trip is still going — jump back in any time.</Text>
+
+            <View style={styles.memberSection}>
+              <Text style={styles.memberSectionLabel}>Joined so far</Text>
+              {membersLoading ? (
+                <Text style={styles.memberSectionEmpty}>Loading members...</Text>
+              ) : activeMembers.length > 0 ? (
+                <View style={styles.memberList}>
+                  {activeMembers.map((member) => (
+                    <View key={member._id} style={styles.memberCard}>
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.memberTopRow}>
+                          <Text style={styles.memberName} numberOfLines={1}>
+                            {member.user?._id === user?.id ? "You" : member.user?.name || "Member"}
+                          </Text>
+                          {member.role === "owner" ? <Text style={styles.memberChipRole}>Owner</Text> : null}
+                        </View>
+                        <Text style={styles.memberPhone} numberOfLines={1}>
+                          {member.user?.phone ? `Phone: ${member.user.phone}` : "Phone not added"}
+                        </Text>
+                        {member.user?.email ? (
+                          <Text style={styles.memberEmail} numberOfLines={1}>
+                            {member.user.email}
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      {member.user?.phone ? (
+                        <TouchableOpacity
+                          style={styles.callButton}
+                          onPress={() => handleCallMember(member.user.phone)}
+                        >
+                          <Text style={styles.callButtonText}>Call</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.memberSectionEmpty}>No one else has joined yet.</Text>
+              )}
+            </View>
+
             <TouchableOpacity
               style={styles.button}
               onPress={() => navigation.navigate("TripMap", { trip: activeTrip })}
@@ -352,24 +456,72 @@ export default function HomeScreen({ navigation }) {
           >
             <SafeAreaView style={{ flex: 1 }}>
               <View style={styles.menuHeader}>
-                <View style={styles.menuAvatar}>
-                  <Text style={styles.menuAvatarText}>{firstName[0]?.toUpperCase() || "R"}</Text>
+                <View style={styles.menuTopRow}>
+                  <Text style={styles.menuTitle}>Menu</Text>
+                  <TouchableOpacity onPress={closeMenu} style={styles.menuCloseButton}>
+                    <Text style={styles.menuCloseButtonText}>✕</Text>
+                  </TouchableOpacity>
                 </View>
-                <Text style={styles.menuName} numberOfLines={1}>{user?.name || "Rider"}</Text>
-                <Text style={styles.menuEmail} numberOfLines={1}>{user?.email || ""}</Text>
+
+                <View style={styles.menuProfileCard}>
+                  <View style={styles.menuAvatar}>
+                    <Text style={styles.menuAvatarText}>{firstName[0]?.toUpperCase() || "R"}</Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.menuName} numberOfLines={1}>{user?.name || "Rider"}</Text>
+                    <Text style={styles.menuEmail} numberOfLines={1}>{user?.email || ""}</Text>
+                    <View style={styles.menuProfileMetaRow}>
+                      <View style={styles.menuProfilePill}>
+                        <Text style={styles.menuProfilePillText}>{user?.phone || "No phone"}</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.menuDivider} />
 
-              <TouchableOpacity style={styles.menuItem} onPress={handleMenuHistory}>
-                <Text style={styles.menuItemText}>🕓  Trip History</Text>
+              <Text style={styles.menuSectionLabel}>Navigation</Text>
+
+              <TouchableOpacity style={styles.menuItemCard} onPress={handleMenuHistory}>
+                <Text style={styles.menuItemIcon}>🕓</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemText}>Trip History</Text>
+                  <Text style={styles.menuItemSubtext}>Review live and ended trips</Text>
+                </View>
               </TouchableOpacity>
 
-              <View style={{ flex: 1 }} />
-
-              <TouchableOpacity style={styles.menuItem} onPress={handleMenuLogout}>
-                <Text style={[styles.menuItemText, styles.menuLogoutText]}>⎋  Log Out</Text>
+              <TouchableOpacity style={styles.menuItemCard} onPress={handleMenuProfile}>
+                <Text style={styles.menuItemIcon}>👤</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemText}>Profile</Text>
+                  <Text style={styles.menuItemSubtext}>Update your rider details</Text>
+                </View>
               </TouchableOpacity>
+
+              <TouchableOpacity style={styles.menuItemCard} onPress={handleMenuAbout}>
+                <Text style={styles.menuItemIcon}>ℹ️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemText}>About</Text>
+                  <Text style={styles.menuItemSubtext}>See app features and version</Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.menuDividerSpacer} />
+              <Text style={styles.menuSectionLabel}>Session</Text>
+
+              <TouchableOpacity style={[styles.menuItemCard, styles.menuLogoutCard]} onPress={handleMenuLogout}>
+                <Text style={styles.menuItemIcon}>⎋</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemText, styles.menuLogoutText]}>Log Out</Text>
+                  <Text style={styles.menuItemSubtext}>End the current session on this device</Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.menuFooter}>
+                <Text style={styles.menuFooterText}>Ride safe. Keep your phone charged.</Text>
+              </View>
             </SafeAreaView>
           </Animated.View>
         </TouchableOpacity>
@@ -452,35 +604,105 @@ const styles = StyleSheet.create({
 
   menuBar: { width: 16, height: 2, borderRadius: 1, backgroundColor: "#4F46E5" },
 
-  menuBackdrop: { flex: 1, backgroundColor: "rgba(15,23,42,0.4)", flexDirection: "row" },
+  menuBackdrop: { flex: 1, backgroundColor: "rgba(2,6,23,0.55)", flexDirection: "row" },
   menuPanel: {
     marginLeft: "auto",
-    width: MENU_WIDTH,
+    width: Math.min(320, SCREEN_WIDTH * 0.86),
     height: "100%",
     backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    shadowOffset: { width: -4, height: 0 },
-    elevation: 12,
+    borderTopLeftRadius: 32,
+    borderBottomLeftRadius: 32,
+    overflow: "hidden",
+    shadowColor: "#020617",
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    shadowOffset: { width: -8, height: 0 },
+    elevation: 18,
   },
-  menuHeader: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 20 },
-  menuAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#EEF2FF",
+  menuHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 18,
+    backgroundColor: "#F8FAFC",
+  },
+  menuTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  menuTitle: { color: "#0F172A", fontSize: 18, fontWeight: "900", letterSpacing: 0.4 },
+  menuCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    backgroundColor: "#E2E8F0",
   },
-  menuAvatarText: { color: "#4F46E5", fontWeight: "800", fontSize: 20 },
-  menuName: { fontSize: 17, fontWeight: "800", color: "#1E293B" },
+  menuCloseButtonText: { color: "#1E293B", fontSize: 14, fontWeight: "900" },
+  menuProfileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  menuAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    backgroundColor: "#4F46E5",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#4F46E5",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  menuAvatarText: { color: "#FFFFFF", fontWeight: "900", fontSize: 20 },
+  menuName: { fontSize: 17, fontWeight: "900", color: "#0F172A" },
   menuEmail: { fontSize: 12.5, color: "#64748B", marginTop: 2 },
-  menuDivider: { height: 1, backgroundColor: "#F1F5F9" },
-  menuItem: { paddingHorizontal: 24, paddingVertical: 18 },
-  menuItemText: { fontSize: 15, fontWeight: "700", color: "#1E293B" },
-  menuLogoutText: { color: "#EF4444" },
+  menuProfileMetaRow: { flexDirection: "row", marginTop: 10 },
+  menuProfilePill: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    alignSelf: "flex-start",
+  },
+  menuProfilePillText: { color: "#4338CA", fontSize: 11, fontWeight: "800" },
+  menuDivider: { height: 1, backgroundColor: "#E2E8F0" },
+  menuDividerSpacer: { height: 12 },
+  menuSectionLabel: { color: "#64748B", fontSize: 11, fontWeight: "900", letterSpacing: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 },
+  menuItemCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  menuItemIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F8FAFC",
+    textAlign: "center",
+    textAlignVertical: "center",
+    fontSize: 17,
+    lineHeight: 38,
+  },
+  menuItemText: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+  menuItemSubtext: { color: "#64748B", fontSize: 12, marginTop: 2 },
+  menuLogoutCard: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+  menuLogoutText: { color: "#B91C1C" },
+  menuFooter: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20 },
+  menuFooterText: { color: "#94A3B8", fontSize: 12, fontWeight: "600", textAlign: "center", lineHeight: 18 },
 
   heading: {
     marginTop: 20,
@@ -521,6 +743,42 @@ const styles = StyleSheet.create({
   activeTripBadgeText: { color: "#16A34A", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
   activeTripTitle: { fontSize: 20, fontWeight: "900", color: "#1E293B" },
   activeTripHint: { color: "#64748B", fontSize: 13, marginTop: 4, marginBottom: 18 },
+
+  memberSection: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  memberSectionLabel: { color: "#475569", fontSize: 12, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10 },
+  memberSectionEmpty: { color: "#94A3B8", fontSize: 12.5 },
+  memberList: { gap: 10 },
+  memberCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  memberTopRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+  memberName: { color: "#1E293B", fontSize: 14, fontWeight: "800", flex: 1 },
+  memberPhone: { color: "#4F46E5", fontSize: 12.5, fontWeight: "700" },
+  memberEmail: { color: "#64748B", fontSize: 11.5, marginTop: 2 },
+  callButton: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callButtonText: { color: "#4F46E5", fontSize: 12, fontWeight: "800" },
+  memberChipRole: { color: "#64748B", fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
 
   cardTitleRow: {
     flexDirection: "row",
