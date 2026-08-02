@@ -169,6 +169,14 @@ export default function TripMapScreen({ route, navigation }) {
     const socket = getSocket();
 
     if (socket) {
+      // socket.io reconnects automatically after a network blip or the app
+      // resuming from background, but it doesn't remember which trip room
+      // we were in — without this, location updates would silently stop
+      // flowing until the screen was fully remounted.
+      socket.on("connect", () => {
+        socket.emit("joinRoom", { tripId: trip._id });
+      });
+
       socket.emit("joinRoom", { tripId: trip._id });
 
       socket.on("locationUpdate", ({ userId, lat, lng }) => {
@@ -196,6 +204,7 @@ export default function TripMapScreen({ route, navigation }) {
     return () => {
       if (socket) {
         socket.emit("leaveRoom", { tripId: trip._id });
+        socket.off("connect");
         socket.off("locationUpdate");
         socket.off("separationAlert");
         socket.off("sosTriggered");
@@ -382,6 +391,7 @@ export default function TripMapScreen({ route, navigation }) {
   const mapHtml = buildMapHtml({
     center: currentLocation || region,
     selfLocation: currentLocation,
+    selfName: user?.name ? `You (${user.name.split(" ")[0]})` : "You",
     members: memberMarkers,
     destination: trip?.destination,
     routeCoordinates,
