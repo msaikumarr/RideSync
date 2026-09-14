@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   saveAutoSosDeadline,
 } from "../utils/storage";
 import SOSButton from "../components/SOSButton";
+import MapLegend from "../components/MapLegend";
 
 const LOCATION_TIMEOUT_MS = 20000;
 const INACTIVITY_TIMEOUT_MS = 8 * 60 * 1000;
@@ -56,109 +57,230 @@ const GROUP_STATUS_INFO = {
   separated: { label: "Separated", color: "#DC2626", bg: "#FEE2E2" },
 };
 
-const buildMapHtml = ({ center, selfLocation, selfId, selfName, members, destination, routeCoordinates }) => {
-  const payload = JSON.stringify({ center, selfLocation, selfId, selfName, members, destination, routeCoordinates });
+// A static, data-free Leaflet shell loaded exactly once for the life of this
+// screen. All live data (self location, members, route, destination) is
+// pushed in afterward via injectJavaScript -> window.updateMapData(...),
+// which moves/adds/removes markers on the already-running map instead of
+// reloading the whole page. Reloading the WebView on every ~5s GPS tick
+// (the previous approach, via a coordinate-based `key`) was fine to get live
+// tracking working, but is wasteful and visibly flickers once the feature
+// set is stable — see RideSync_Complete_Project_Documentation section 31.
+const MAP_HTML = `
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <style>
+        html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f4f7fe; }
+        .leaflet-control-attribution { display: none !important; }
+        .rs-label {
+          background: #FFFFFF;
+          border: none;
+          border-radius: 8px;
+          padding: 3px 8px;
+          font-family: -apple-system, sans-serif;
+          font-size: 11px;
+          font-weight: 700;
+          color: #1E293B;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        .rs-label::before { display: none; }
+      </style>
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script>
+        const map = L.map('map', { zoomControl: true });
 
-  return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <style>
-          html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #f4f7fe; }
-          .leaflet-control-attribution { display: none !important; }
-          .rs-label {
-            background: #FFFFFF;
-            border: none;
-            border-radius: 8px;
-            padding: 3px 8px;
-            font-family: -apple-system, sans-serif;
-            font-size: 11px;
-            font-weight: 700;
-            color: #1E293B;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-          }
-          .rs-label::before { display: none; }
-        </style>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script>
-          const data = ${payload};
-          const map = L.map('map', { zoomControl: true }).setView([data.center.latitude, data.center.longitude], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
 
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-          }).addTo(map);
+        function escapeHtml(value) {
+          return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        }
 
+        function makeDotIcon(color, size) {
+          return L.divIcon({
+            className: '',
+            html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>',
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2]
+          });
+        }
+
+        function focusOnMember(lat, lng) {
+          map.closePopup();
+          map.flyTo([lat, lng], Math.max(map.getZoom(), 16));
+        }
+
+        let selfMarker = null;
+        let destMarker = null;
+        let routeLine = null;
+        let fallbackLine = null;
+        let hasFitBoundsOnce = false;
+        const memberMarkersById = {};
+
+        function memberPopupHtml(member) {
+          const name = escapeHtml(member.name || 'Trip member');
+          const statusLabel = member.sos
+            ? 'SOS'
+            : member.groupStatus === 'separated'
+            ? 'Separated'
+            : member.groupStatus === 'getting_separated'
+            ? 'Getting separated'
+            : 'Together';
+          const distanceLabel =
+            typeof member.distanceFromGroupKm === 'number'
+              ? member.distanceFromGroupKm >= 1
+                ? member.distanceFromGroupKm.toFixed(1) + 'km'
+                : Math.round(member.distanceFromGroupKm * 1000) + 'm'
+              : 'Unknown';
+
+          return (
+            '<div style="min-width:150px;font-family:-apple-system,sans-serif;">' +
+              '<div style="font-weight:700;font-size:14px;color:#1E293B;margin-bottom:4px;">' + name + '</div>' +
+              '<div style="font-size:12px;color:#475569;">Status: ' + statusLabel + '</div>' +
+              '<div style="font-size:12px;color:#475569;margin-bottom:8px;">Distance: ' + distanceLabel + '</div>' +
+              '<button onclick="focusOnMember(' + member.latitude + ',' + member.longitude + ')" ' +
+                'style="background:#4F46E5;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;">' +
+                'Focus on ' + name +
+              '</button>' +
+            '</div>'
+          );
+        }
+
+        // Called repeatedly (roughly every GPS tick) via injectJavaScript.
+        // Updates existing markers in place — only creates/removes markers
+        // when membership actually changes — instead of tearing down and
+        // rebuilding the whole map.
+        window.updateMapData = function (data) {
           const boundsPoints = [];
 
-          function addMarker(lat, lng, color, label) {
-            const icon = L.divIcon({
-              className: '',
-              html: '<div style="width:16px;height:16px;border-radius:50%;background:' + color + ';border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>',
-              iconSize: [16, 16],
-              iconAnchor: [8, 8]
-            });
-            const marker = L.marker([lat, lng], { icon }).addTo(map);
-            marker.bindTooltip(label, { permanent: true, direction: 'top', offset: [0, -10], className: 'rs-label' });
-            boundsPoints.push([lat, lng]);
-          }
-
+          // Self and destination are each unique on the map, so a permanent
+          // label is fine. Other members get a tap-to-view popup instead —
+          // labelling every member permanently gets unreadable the moment
+          // two or three markers overlap (see doc section 16).
           if (data.selfLocation) {
-            addMarker(data.selfLocation.latitude, data.selfLocation.longitude, '#22C55E', data.selfName || 'You');
+            const latLng = [data.selfLocation.latitude, data.selfLocation.longitude];
+            if (!selfMarker) {
+              selfMarker = L.marker(latLng, { icon: makeDotIcon('#22C55E', 16) }).addTo(map);
+              selfMarker.bindTooltip(escapeHtml(data.selfName || 'You'), {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -10],
+                className: 'rs-label'
+              });
+            } else {
+              selfMarker.setLatLng(latLng);
+            }
+            boundsPoints.push(latLng);
           }
 
+          const seenMemberIds = {};
           (data.members || []).forEach(member => {
             if (member.userId === data.selfId) return;
-            addMarker(
-              member.latitude,
-              member.longitude,
-              member.sos ? '#EF4444' : '#4F46E5',
-              member.sos ? (member.name || 'Trip member') + ' · SOS' : (member.name || 'Trip member')
-            );
+            seenMemberIds[member.userId] = true;
+
+            const latLng = [member.latitude, member.longitude];
+            const color = member.sos ? '#EF4444' : '#4F46E5';
+            let entry = memberMarkersById[member.userId];
+
+            if (!entry) {
+              const marker = L.marker(latLng, { icon: makeDotIcon(color, 16) }).addTo(map);
+              marker.bindPopup(memberPopupHtml(member));
+              memberMarkersById[member.userId] = { marker, color };
+            } else {
+              entry.marker.setLatLng(latLng);
+              entry.marker.setPopupContent(memberPopupHtml(member));
+              if (entry.color !== color) {
+                entry.marker.setIcon(makeDotIcon(color, 16));
+                entry.color = color;
+              }
+            }
+
+            boundsPoints.push(latLng);
+          });
+
+          // Members who've left/disconnected since the last update no longer
+          // get a marker.
+          Object.keys(memberMarkersById).forEach(userId => {
+            if (!seenMemberIds[userId]) {
+              map.removeLayer(memberMarkersById[userId].marker);
+              delete memberMarkersById[userId];
+            }
           });
 
           if (data.destination && data.destination.lat && data.destination.lng) {
-            const destIcon = L.divIcon({
-              className: '',
-              html: '<div style="width:22px;height:22px;border-radius:6px 6px 6px 0;transform:rotate(45deg);background:#F59E0B;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>',
-              iconSize: [22, 22],
-              iconAnchor: [11, 22]
-            });
-            const destMarker = L.marker([data.destination.lat, data.destination.lng], { icon: destIcon }).addTo(map);
-            destMarker.bindTooltip(data.destination.name || 'Destination', { permanent: true, direction: 'top', offset: [0, -18], className: 'rs-label' });
-            boundsPoints.push([data.destination.lat, data.destination.lng]);
+            const destLatLng = [data.destination.lat, data.destination.lng];
+            if (!destMarker) {
+              const destIcon = L.divIcon({
+                className: '',
+                html: '<div style="width:22px;height:22px;border-radius:6px 6px 6px 0;transform:rotate(45deg);background:#F59E0B;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div>',
+                iconSize: [22, 22],
+                iconAnchor: [11, 22]
+              });
+              destMarker = L.marker(destLatLng, { icon: destIcon }).addTo(map);
+              destMarker.bindTooltip(escapeHtml(data.destination.name || 'Destination'), {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -18],
+                className: 'rs-label'
+              });
+            }
+            boundsPoints.push(destLatLng);
 
             if (data.routeCoordinates && data.routeCoordinates.length > 1) {
               // Real road-following route (fetched from a routing service on the app side)
-              L.polyline(data.routeCoordinates, { color: '#4F46E5', weight: 5, opacity: 0.85 }).addTo(map);
+              if (fallbackLine) {
+                map.removeLayer(fallbackLine);
+                fallbackLine = null;
+              }
+              if (!routeLine) {
+                routeLine = L.polyline(data.routeCoordinates, { color: '#4F46E5', weight: 5, opacity: 0.85 }).addTo(map);
+              } else {
+                routeLine.setLatLngs(data.routeCoordinates);
+              }
               data.routeCoordinates.forEach(p => boundsPoints.push(p));
-            } else if (data.selfLocation) {
+            } else if (data.selfLocation && !routeLine) {
               // Fallback: straight line shown only until the real route loads
-              L.polyline(
-                [
-                  [data.selfLocation.latitude, data.selfLocation.longitude],
-                  [data.destination.lat, data.destination.lng]
-                ],
-                { color: '#94A3B8', weight: 3, opacity: 0.6, dashArray: '8, 10' }
-              ).addTo(map);
+              const fallbackPoints = [
+                [data.selfLocation.latitude, data.selfLocation.longitude],
+                destLatLng
+              ];
+              if (!fallbackLine) {
+                fallbackLine = L.polyline(fallbackPoints, { color: '#94A3B8', weight: 3, opacity: 0.6, dashArray: '8, 10' }).addTo(map);
+              } else {
+                fallbackLine.setLatLngs(fallbackPoints);
+              }
             }
           }
 
-          if (boundsPoints.length > 1) {
-            map.fitBounds(L.latLngBounds(boundsPoints).pad(0.25));
-          } else if (data.selfLocation) {
-            map.setView([data.selfLocation.latitude, data.selfLocation.longitude], 15);
+          // Only auto-fit/center once, the first time there's enough to show
+          // — after that, let the rider pan/zoom freely without the map
+          // yanking back to "fit everyone" on every GPS tick.
+          if (!hasFitBoundsOnce) {
+            if (boundsPoints.length > 1) {
+              map.fitBounds(L.latLngBounds(boundsPoints).pad(0.25));
+              hasFitBoundsOnce = true;
+            } else if (data.selfLocation) {
+              map.setView([data.selfLocation.latitude, data.selfLocation.longitude], 15);
+              hasFitBoundsOnce = true;
+            }
           }
-        </script>
-      </body>
-    </html>
-  `;
-};
+        };
+      </script>
+    </body>
+  </html>
+`;
 
 // Fetches a real road-following route between two points using OSRM's public
 // demo routing server. Returns an array of [lat, lng] pairs for Leaflet, or
@@ -183,14 +305,7 @@ export default function TripMapScreen({ route, navigation }) {
   const [endingTrip, setEndingTrip] = useState(false);
   const watchSubscription = useRef(null);
   const locationTimeoutRef = useRef(null);
-  const defaultRegion = {
-    latitude: 17.385,
-    longitude: 78.4867,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
-  };
 
-  const [region, setRegion] = useState(defaultRegion);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [members, setMembers] = useState({});
   const [membersById, setMembersById] = useState({});
@@ -210,6 +325,8 @@ export default function TripMapScreen({ route, navigation }) {
   const [inactivityHydrated, setInactivityHydrated] = useState(false);
   const [socketConnected, setSocketConnected] = useState(true);
   const hasConnectedOnceRef = useRef(false);
+  const webViewRef = useRef(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const vibrateSOS = () => {
     Vibration.vibrate([0, 250, 120, 250]);
@@ -325,7 +442,10 @@ export default function TripMapScreen({ route, navigation }) {
       socket.emit("joinRoom", { tripId: trip._id });
 
       socket.on("locationUpdate", ({ userId, lat, lng, distanceFromGroupKm, groupStatus }) => {
-        setMembers((prev) => ({ ...prev, [userId]: { ...prev[userId], lat, lng } }));
+        setMembers((prev) => ({
+          ...prev,
+          [userId]: { ...prev[userId], lat, lng, distanceFromGroupKm, groupStatus },
+        }));
         // If we don't have a name or cached location for this person yet,
         // refresh the member list so their marker can render immediately.
         setMembersById((prevNames) => {
@@ -455,6 +575,26 @@ export default function TripMapScreen({ route, navigation }) {
     latestLocationRef.current = currentLocation;
   }, [currentLocation]);
 
+  // Pushes fresh data into the already-running Leaflet map instead of
+  // reloading the WebView on every GPS tick — see MAP_HTML/updateMapData
+  // above and doc section 31.
+  useEffect(() => {
+    if (!mapReady || !webViewRef.current) return;
+
+    const payload = {
+      selfId: user?.id,
+      selfLocation: currentLocation,
+      selfName: user?.name ? `You (${user.name.split(" ")[0]})` : "You",
+      members: memberMarkers,
+      destination: trip?.destination,
+      routeCoordinates,
+    };
+    // Same "<" escaping as before: a member/destination name containing
+    // "</script>" must not be able to break out of the injected script.
+    const json = JSON.stringify(payload).replace(/</g, "\\u003c");
+    webViewRef.current.injectJavaScript(`window.updateMapData(${json}); true;`);
+  }, [mapReady, currentLocation, memberMarkers, routeCoordinates, trip?.destination, user?.id, user?.name]);
+
   useEffect(() => {
     if (!trip?._id || !currentLocation || locationStatus !== "ready" || !inactivityHydrated) {
       clearInactivityTimer();
@@ -508,6 +648,8 @@ export default function TripMapScreen({ route, navigation }) {
             lat: m.lastLocation.lat,
             lng: m.lastLocation.lng,
             sos: !!m.sos?.active,
+            groupStatus: m.groupStatus,
+            distanceFromGroupKm: m.distanceFromGroupKm,
           };
         }
       });
@@ -566,12 +708,6 @@ export default function TripMapScreen({ route, navigation }) {
       };
 
       setCurrentLocation(nextLocation);
-      setRegion({
-        latitude: initial.coords.latitude,
-        longitude: initial.coords.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      });
       setLocationStatus("ready");
 
       watchSubscription.current = await Location.watchPositionAsync(
@@ -583,12 +719,6 @@ export default function TripMapScreen({ route, navigation }) {
           };
 
           setCurrentLocation(liveLocation);
-          setRegion({
-            latitude: liveLocation.latitude,
-            longitude: liveLocation.longitude,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          });
 
           if (socket) {
             socket.emit("locationUpdate", {
@@ -653,15 +783,23 @@ export default function TripMapScreen({ route, navigation }) {
     ]);
   };
 
-  const memberMarkers = Object.entries(members)
-    .filter(([, location]) => location?.lat && location?.lng)
-    .map(([userId, location]) => ({
-      userId,
-      latitude: location.lat,
-      longitude: location.lng,
-      sos: !!location.sos,
-      name: membersById[userId] || "Trip member",
-    }));
+  // Memoized so the push-update effect below only fires when a member's
+  // actual data changes, not on every unrelated re-render.
+  const memberMarkers = useMemo(
+    () =>
+      Object.entries(members)
+        .filter(([, location]) => location?.lat && location?.lng)
+        .map(([userId, location]) => ({
+          userId,
+          latitude: location.lat,
+          longitude: location.lng,
+          sos: !!location.sos,
+          name: membersById[userId] || "Trip member",
+          groupStatus: location.groupStatus,
+          distanceFromGroupKm: location.distanceFromGroupKm,
+        })),
+    [members, membersById]
+  );
 
   // membersById comes from the trip members API and already includes the
   // current user, so it's the authoritative headcount. Fall back to
@@ -723,16 +861,6 @@ export default function TripMapScreen({ route, navigation }) {
     </SafeAreaView>
   );
 
-  const mapHtml = buildMapHtml({
-    center: currentLocation || region,
-    selfLocation: currentLocation,
-    selfId: user?.id,
-    selfName: user?.name ? `You (${user.name.split(" ")[0]})` : "You",
-    members: memberMarkers,
-    destination: trip?.destination,
-    routeCoordinates,
-  });
-
   const statusOverlay =
     locationStatus === "denied" ? (
       <View style={styles.statusOverlay}>
@@ -767,16 +895,21 @@ export default function TripMapScreen({ route, navigation }) {
 
       <View style={styles.mapArea}>
         <WebView
-          key={`${currentLocation?.latitude || region.latitude}-${currentLocation?.longitude || region.longitude}-${memberMarkers.length}-${routeCoordinates ? routeCoordinates.length : 0}`}
-          source={{ html: mapHtml }}
+          ref={webViewRef}
+          source={{ html: MAP_HTML }}
           originWhitelist={["*"]}
           javaScriptEnabled
           domStorageEnabled
           scrollEnabled={false}
+          onLoadEnd={() => setMapReady(true)}
           style={StyleSheet.absoluteFillObject}
         />
 
         {statusOverlay}
+
+        <View style={styles.legendWrapper}>
+          <MapLegend />
+        </View>
       </View>
 
       {!socketConnected && (
@@ -900,6 +1033,13 @@ const styles = StyleSheet.create({
   },
   reconnectBannerText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
   mapArea: { flex: 1 },
+  legendWrapper: {
+    position: "absolute",
+    right: 16,
+    top: "50%",
+    marginTop: -20,
+    zIndex: 9,
+  },
   statusOverlay: {
     position: "absolute",
     left: 16,
