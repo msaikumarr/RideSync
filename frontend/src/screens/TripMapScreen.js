@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Vibration,
+  Linking,
 } from "react-native";
 import * as Location from "expo-location";
 import { WebView } from "react-native-webview";
@@ -353,7 +354,7 @@ export default function TripMapScreen({ route, navigation }) {
         setTimeout(() => setSeparationAlert(null), 6000);
       });
 
-      socket.on("sosTriggered", ({ userId, lat, lng }) => {
+      socket.on("sosTriggered", ({ userId, lat, lng, userName, emergencyContact }) => {
         setMembers((prev) => ({ ...prev, [userId]: { ...prev[userId], lat, lng, sos: true } }));
         const isSelf = String(userId) === String(user?.id);
 
@@ -364,7 +365,25 @@ export default function TripMapScreen({ route, navigation }) {
         }
 
         vibrateSOS();
-        Alert.alert("SOS Alert", "A trip member has triggered an emergency alert.");
+
+        const name = userName || membersById[userId] || "A trip member";
+        const contactPhone = emergencyContact?.phone;
+
+        Alert.alert(
+          "SOS Alert",
+          contactPhone
+            ? `${name} has triggered an emergency alert.`
+            : `${name} has triggered an emergency alert. No emergency contact is on file for them.`,
+          contactPhone
+            ? [
+                { text: "OK" },
+                {
+                  text: `Call ${emergencyContact?.name || "emergency contact"}`,
+                  onPress: () => handleCallNumber(contactPhone),
+                },
+              ]
+            : [{ text: "OK" }]
+        );
       });
 
       socket.on("sosCleared", ({ userId }) => {
@@ -583,6 +602,22 @@ export default function TripMapScreen({ route, navigation }) {
     } catch (err) {
       clearLocationTimeout();
       setLocationStatus("error");
+    }
+  };
+
+  const handleCallNumber = async (phone) => {
+    if (!phone) return;
+    const cleanedPhone = phone.replace(/[^0-9+]/g, "");
+    try {
+      const url = `tel:${cleanedPhone}`;
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        Alert.alert("Can't place call", "Your device can't open the phone dialer.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (err) {
+      Alert.alert("Can't place call", "Please try again.");
     }
   };
 

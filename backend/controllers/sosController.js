@@ -30,18 +30,24 @@ const triggerSOS = async (req, res) => {
       triggeredAt: member.sos.triggeredAt
     });
 
-    // Broadcast to trip room via Socket.IO (io instance attached to app in server.js)
+    // Fetched once and reused for both the socket broadcast and the
+    // notification message — this is also the "accessible path from the SOS
+    // experience to the emergency contact" the doc calls for: other members
+    // see who to reach out to (name + phone) right in the alert itself.
+    const triggeringUser = await User.findById(req.user.id).select('name emergencyContact');
+
     const io = req.app.get('io');
     if (io) {
       io.to(`trip:${tripId}`).emit('sosTriggered', {
         userId: req.user.id,
         lat,
         lng,
-        triggeredAt: member.sos.triggeredAt
+        triggeredAt: member.sos.triggeredAt,
+        userName: triggeringUser?.name,
+        emergencyContact: triggeringUser?.emergencyContact
       });
     }
 
-    const triggeringUser = await User.findById(req.user.id).select('name');
     await notifyTrip({
       tripId,
       type: 'sos_alert',
@@ -101,7 +107,7 @@ const getSosHistory = async (req, res) => {
 
     const events = await SosEvent.find({ trip: tripId })
       .sort({ triggeredAt: -1 })
-      .populate('user', 'name');
+      .populate('user', 'name emergencyContact');
 
     res.status(200).json({ events });
   } catch (err) {

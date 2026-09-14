@@ -9,6 +9,7 @@ import {
   Modal,
   ActivityIndicator,
   ScrollView,
+  Linking,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { sosAPI } from '../api/client';
@@ -140,6 +141,22 @@ export default function SOSButton({ tripId, isActive = false, countdownSeconds =
     }
   };
 
+  const handleCallNumber = async (phone) => {
+    if (!phone) return;
+    const cleanedPhone = phone.replace(/[^0-9+]/g, '');
+    try {
+      const url = `tel:${cleanedPhone}`;
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        Alert.alert("Can't place call", "Your device can't open the phone dialer.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (err) {
+      Alert.alert("Can't place call", 'Please try again.');
+    }
+  };
+
   const openHistory = async () => {
     setHistoryVisible(true);
     setHistoryLoading(true);
@@ -214,20 +231,36 @@ export default function SOSButton({ tripId, isActive = false, countdownSeconds =
               <ActivityIndicator size="small" color="#EF4444" style={{ marginVertical: 24 }} />
             ) : historyEvents.length > 0 ? (
               <ScrollView style={{ maxHeight: 320 }}>
-                {historyEvents.map((event) => (
-                  <View key={event._id} style={styles.historyRow}>
-                    <View style={[styles.historyDot, event.status === 'active' && styles.historyDotActive]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.historyName}>{event.user?.name || 'A trip member'}</Text>
-                      <Text style={styles.historyMeta}>
-                        {formatEventTime(event.triggeredAt)}
-                        {event.status === 'resolved'
-                          ? ` · resolved ${formatEventTime(event.resolvedAt)}`
-                          : ' · still active'}
-                      </Text>
+                {historyEvents.map((event) => {
+                  const contact = event.user?.emergencyContact;
+                  return (
+                    <View key={event._id} style={styles.historyRow}>
+                      <View style={[styles.historyDot, event.status === 'active' && styles.historyDotActive]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.historyName}>{event.user?.name || 'A trip member'}</Text>
+                        <Text style={styles.historyMeta}>
+                          {formatEventTime(event.triggeredAt)}
+                          {event.status === 'resolved'
+                            ? ` · resolved ${formatEventTime(event.resolvedAt)}`
+                            : ' · still active'}
+                        </Text>
+                        <Text style={styles.historyContact}>
+                          {contact?.phone
+                            ? `Emergency contact: ${contact.name || 'Unnamed'} · ${contact.phone}`
+                            : 'No emergency contact on file'}
+                        </Text>
+                      </View>
+                      {contact?.phone ? (
+                        <TouchableOpacity
+                          style={styles.historyCallButton}
+                          onPress={() => handleCallNumber(contact.phone)}
+                        >
+                          <Text style={styles.historyCallButtonText}>Call</Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </ScrollView>
             ) : (
               <Text style={styles.historyEmpty}>No SOS events yet on this trip.</Text>
@@ -323,5 +356,14 @@ const styles = StyleSheet.create({
   historyDotActive: { backgroundColor: '#EF4444' },
   historyName: { fontSize: 14, fontWeight: '700', color: '#1E293B' },
   historyMeta: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  historyContact: { fontSize: 11.5, color: '#94A3B8', marginTop: 3 },
+  historyCallButton: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 10,
+  },
+  historyCallButtonText: { color: '#4F46E5', fontWeight: '700', fontSize: 12 },
   historyEmpty: { color: '#94A3B8', fontStyle: 'italic', fontSize: 13, textAlign: 'center', marginVertical: 20 },
 });
