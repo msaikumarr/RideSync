@@ -32,13 +32,27 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   };
 
+  // Registering no longer logs the user in — the account is created
+  // unverified and stays that way until verifyOtp succeeds, so this just
+  // returns the server's response (message + email) for the caller to move
+  // on to the OTP screen with.
   const register = async (name, email, password, phone) => {
     const { data } = await authAPI.register({ name, email, password, phone });
+    return data;
+  };
+
+  const verifyOtp = async (email, otp) => {
+    const { data } = await authAPI.verifyOtp(email, otp);
     await saveSession(data.token, data.user);
     setToken(data.token);
     setUser(data.user);
     connectSocket(data.token);
     return data.user;
+  };
+
+  const resendOtp = async (email) => {
+    const { data } = await authAPI.sendOtp(email);
+    return data;
   };
 
   const logout = async () => {
@@ -49,7 +63,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOtp, resendOtp, logout }}>
       {children}
     </AuthContext.Provider>
   );

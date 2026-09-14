@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getToken } from '../utils/storage';
 
 // Update this to your backend URL (see ../../.env.example)
-const API_BASE_URL = 'http://10.242.228.73:5000/api';
+const API_BASE_URL = 'http://10.116.108.73:5000/api';
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -19,13 +19,11 @@ client.interceptors.request.use(async (config) => {
 
 export const authAPI = {
   register: (data) => client.post('/register', data),
+  sendOtp: (email) => client.post('/send-otp', { email }),
+  verifyOtp: (email, otp) => client.post('/verify-otp', { email, otp }),
   login: (data) => client.post('/login', data),
   forgotPassword: (email) => client.post('/forgot-password', { email }),
-  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword }),
-  getProfile: () => client.get('/me'),
-  updateProfile: (data) => client.put('/me', data),
-  changePassword: (currentPassword, newPassword) =>
-    client.post('/change-password', { currentPassword, newPassword })
+  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword })
 };
 
 export const tripAPI = {
@@ -35,6 +33,7 @@ export const tripAPI = {
   end: (tripId) => client.post(`/trip/${tripId}/end`),
   active: () => client.get('/trip/active'),
   history: () => client.get('/trip/history'),
+  summary: (tripId) => client.get(`/trip/${tripId}/summary`),
   removeFromHistory: (tripId) => client.delete(`/trip/${tripId}/history`)
 };
 
@@ -49,7 +48,14 @@ export const expenseAPI = {
 
 export const sosAPI = {
   trigger: (data) => client.post('/sos', data),
-  clear: (tripId) => client.post('/sos/clear', { tripId })
+  clear: (tripId) => client.post('/sos/clear', { tripId }),
+  history: (tripId) => client.get(`/sos/history/${tripId}`)
+};
+
+export const notificationAPI = {
+  list: () => client.get('/notifications'),
+  markRead: (id) => client.put(`/notifications/${id}/read`),
+  markAllRead: () => client.put('/notifications/read-all')
 };
 
 export default client;

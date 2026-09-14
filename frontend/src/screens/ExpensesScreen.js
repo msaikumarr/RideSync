@@ -21,6 +21,7 @@ const CATEGORIES = [
   { key: "tolls", label: "Tolls" },
   { key: "hotels", label: "Hotels" },
   { key: "parking", label: "Parking" },
+  { key: "vehicle", label: "Vehicle" },
   { key: "other", label: "Other" },
 ];
 
@@ -35,6 +36,11 @@ export default function ExpensesScreen({ route }) {
   const [category, setCategory] = useState("fuel");
   const [summary, setSummary] = useState({ totalSpent: 0, balances: {}, settlements: [], expenses: [] });
   const [membersById, setMembersById] = useState({});
+  const [tripMembers, setTripMembers] = useState([]);
+  // null means "everyone currently on the trip" (the previous default
+  // behavior). Once the rider deselects anyone, this becomes an explicit
+  // list of participant ids so the split matches exactly who they picked.
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -51,10 +57,14 @@ export default function ExpensesScreen({ route }) {
         setSummary(splitRes.data);
 
         const map = {};
+        const members = [];
         (membersRes.data.members || []).forEach((m) => {
-          if (m.user?._id) map[m.user._id] = m.user.name;
+          if (!m.user?._id) return;
+          map[m.user._id] = m.user.name;
+          members.push({ id: m.user._id, name: m.user._id === user?.id ? "You" : m.user.name });
         });
         setMembersById(map);
+        setTripMembers(members);
       } catch (err) {
         // non-fatal — keep whatever we already have on screen
       } finally {
@@ -62,8 +72,19 @@ export default function ExpensesScreen({ route }) {
         setRefreshing(false);
       }
     },
-    [trip._id]
+    [trip._id, user?.id]
   );
+
+  const isParticipantSelected = (id) =>
+    selectedParticipantIds === null || selectedParticipantIds.includes(id);
+
+  const toggleParticipant = (id) => {
+    setSelectedParticipantIds((current) => {
+      const baseline = current === null ? tripMembers.map((m) => m.id) : current;
+      const isSelected = baseline.includes(id);
+      return isSelected ? baseline.filter((memberId) => memberId !== id) : [...baseline, id];
+    });
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -82,11 +103,24 @@ export default function ExpensesScreen({ route }) {
       Alert.alert("Invalid amount", "Enter a valid expense amount.");
       return;
     }
+
+    if (selectedParticipantIds !== null && selectedParticipantIds.length === 0) {
+      Alert.alert("Select who to split with", "Choose at least one person to split this expense between.");
+      return;
+    }
+
     setBusy(true);
     try {
-      await expenseAPI.add({ tripId: trip._id, amount: numericAmount, description, category });
+      await expenseAPI.add({
+        tripId: trip._id,
+        amount: numericAmount,
+        description,
+        category,
+        splitAmong: selectedParticipantIds || undefined,
+      });
       setAmount("");
       setDescription("");
+      setSelectedParticipantIds(null);
       await loadData();
     } catch (err) {
       Alert.alert("Could not add expense", err?.response?.data?.message || "Something went wrong.");
@@ -184,6 +218,25 @@ export default function ExpensesScreen({ route }) {
               </TouchableOpacity>
             ))}
           </View>
+
+          <Text style={[styles.label, { marginTop: 16 }]}>SPLIT BETWEEN</Text>
+          <View style={styles.categoryRow}>
+            {tripMembers.map((member) => {
+              const selected = isParticipantSelected(member.id);
+              return (
+                <TouchableOpacity
+                  key={member.id}
+                  style={[styles.categoryChip, selected && styles.categoryChipActive]}
+                  onPress={() => toggleParticipant(member.id)}
+                >
+                  <Text style={[styles.categoryText, selected && styles.categoryTextActive]} numberOfLines={1}>
+                    {member.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.fieldHint}>Tap to leave someone out — everyone is included by default.</Text>
 
           <TouchableOpacity style={styles.button} onPress={handleAddExpense} disabled={busy}>
             <Text style={styles.buttonText}>{busy ? "Adding..." : "Add Expense"}</Text>
@@ -306,6 +359,7 @@ const styles = StyleSheet.create({
   categoryChipActive: { backgroundColor: "#4F46E5" },
   categoryText: { color: "#64748B", fontSize: 13, fontWeight: "600" },
   categoryTextActive: { color: "#FFFFFF" },
+  fieldHint: { color: "#94A3B8", fontSize: 11.5, marginTop: -2, marginBottom: 4 },
 
   button: {
     marginTop: 22,

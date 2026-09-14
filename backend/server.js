@@ -12,6 +12,7 @@ const tripRoutes = require('./routes/tripRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const sosRoutes = require('./routes/sosRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,6 +37,7 @@ app.use('/api/trip', tripRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/expense', expenseRoutes);
 app.use('/api/sos', sosRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // 404 handler
 app.use((req, res) => {

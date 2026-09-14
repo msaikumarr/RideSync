@@ -1,7 +1,7 @@
 import { io } from 'socket.io-client';
 
 // Update this to your backend URL (see ../../.env.example)
-const SOCKET_URL = 'http://10.242.228.73:5000';
+const SOCKET_URL = 'http://10.116.108.73:5000';
 
 let socket = null;
 

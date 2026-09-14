@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
-import { tripAPI } from "../api/client";
+import { tripAPI, notificationAPI } from "../api/client";
 import { saveActiveTrip, getActiveTripCache, clearActiveTripCache } from "../utils/storage";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -53,6 +53,7 @@ export default function HomeScreen({ navigation }) {
 
   const [menuVisible, setMenuVisible] = useState(false);
   const menuSlide = useRef(new Animated.Value(MENU_WIDTH)).current;
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const openMenu = () => {
     setMenuVisible(true);
@@ -68,6 +69,11 @@ export default function HomeScreen({ navigation }) {
   const handleMenuHistory = () => {
     closeMenu();
     navigation.navigate("TripHistory");
+  };
+
+  const handleMenuNotifications = () => {
+    closeMenu();
+    navigation.navigate("Notifications");
   };
 
   const handleMenuProfile = () => {
@@ -123,6 +129,27 @@ export default function HomeScreen({ navigation }) {
           if (isCurrent) {
             setActiveTrip((current) => (current === undefined ? null : current));
           }
+        });
+
+      return () => {
+        isCurrent = false;
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let isCurrent = true;
+
+      notificationAPI
+        .list()
+        .then(({ data }) => {
+          if (!isCurrent) return;
+          const unread = (data.notifications || []).filter((n) => !n.read).length;
+          setUnreadNotifications(unread);
+        })
+        .catch(() => {
+          // non-fatal — badge just stays at whatever it last showed
         });
 
       return () => {
@@ -282,6 +309,7 @@ export default function HomeScreen({ navigation }) {
               <View style={styles.menuBar} />
               <View style={styles.menuBar} />
               <View style={styles.menuBar} />
+              {unreadNotifications > 0 && <View style={styles.menuButtonBadge} />}
             </TouchableOpacity>
           </View>
 
@@ -484,6 +512,21 @@ export default function HomeScreen({ navigation }) {
 
               <Text style={styles.menuSectionLabel}>Navigation</Text>
 
+              <TouchableOpacity style={styles.menuItemCard} onPress={handleMenuNotifications}>
+                <Text style={styles.menuItemIcon}>🔔</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemText}>Notifications</Text>
+                  <Text style={styles.menuItemSubtext}>Joins, expenses, alerts and more</Text>
+                </View>
+                {unreadNotifications > 0 && (
+                  <View style={styles.menuItemBadge}>
+                    <Text style={styles.menuItemBadgeText}>
+                      {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
               <TouchableOpacity style={styles.menuItemCard} onPress={handleMenuHistory}>
                 <Text style={styles.menuItemIcon}>🕓</Text>
                 <View style={{ flex: 1 }}>
@@ -603,6 +646,17 @@ const styles = StyleSheet.create({
   },
 
   menuBar: { width: 16, height: 2, borderRadius: 1, backgroundColor: "#4F46E5" },
+  menuButtonBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
 
   menuBackdrop: { flex: 1, backgroundColor: "rgba(2,6,23,0.55)", flexDirection: "row" },
   menuPanel: {
@@ -687,6 +741,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  menuItemBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  menuItemBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
   menuItemIcon: {
     width: 38,
     height: 38,

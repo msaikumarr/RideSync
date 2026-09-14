@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "M-Sync",
+    "name": "RideSync",
     "slug": "ridesync",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,8 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.ridesync.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "M-Sync needs your location to share it with your trip group.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "M-Sync needs your location to share it with your trip group, including in the background."
+        "NSLocationWhenInUseUsageDescription": "RideSync needs your location to share it with your trip group.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "RideSync needs your location to share it with your trip group, including in the background."
       }
     },
     "android": {

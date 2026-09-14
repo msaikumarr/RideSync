@@ -44,8 +44,19 @@ const distanceMeters = (a, b) => {
   return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 };
 
-const buildMapHtml = ({ center, selfLocation, selfName, members, destination, routeCoordinates }) => {
-  const payload = JSON.stringify({ center, selfLocation, selfName, members, destination, routeCoordinates });
+const formatDistanceKm = (km) => {
+  if (km === null || km === undefined) return null;
+  return km >= 1 ? `${km.toFixed(1)}km` : `${Math.round(km * 1000)}m`;
+};
+
+const GROUP_STATUS_INFO = {
+  together: { label: "With group", color: "#16A34A", bg: "#DCFCE7" },
+  getting_separated: { label: "Getting separated", color: "#D97706", bg: "#FEF3C7" },
+  separated: { label: "Separated", color: "#DC2626", bg: "#FEE2E2" },
+};
+
+const buildMapHtml = ({ center, selfLocation, selfId, selfName, members, destination, routeCoordinates }) => {
+  const payload = JSON.stringify({ center, selfLocation, selfId, selfName, members, destination, routeCoordinates });
 
   return `
     <!DOCTYPE html>
@@ -101,6 +112,7 @@ const buildMapHtml = ({ center, selfLocation, selfName, members, destination, ro
           }
 
           (data.members || []).forEach(member => {
+            if (member.userId === data.selfId) return;
             addMarker(
               member.latitude,
               member.longitude,
@@ -182,6 +194,8 @@ export default function TripMapScreen({ route, navigation }) {
   const [members, setMembers] = useState({});
   const [membersById, setMembersById] = useState({});
   const [mySosActive, setMySosActive] = useState(false);
+  const [myGroupStatus, setMyGroupStatus] = useState(null);
+  const [myDistanceFromGroupKm, setMyDistanceFromGroupKm] = useState(null);
   const [routeCoordinates, setRouteCoordinates] = useState(null);
   const [separationAlert, setSeparationAlert] = useState(null);
   const [locationStatus, setLocationStatus] = useState("loading");
@@ -193,6 +207,8 @@ export default function TripMapScreen({ route, navigation }) {
   const autoSosInFlightRef = useRef(false);
   const [autoSosSecondsRemaining, setAutoSosSecondsRemaining] = useState(null);
   const [inactivityHydrated, setInactivityHydrated] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(true);
+  const hasConnectedOnceRef = useRef(false);
 
   const vibrateSOS = () => {
     Vibration.vibrate([0, 250, 120, 250]);
@@ -282,14 +298,32 @@ export default function TripMapScreen({ route, navigation }) {
       // socket.io reconnects automatically after a network blip or the app
       // resuming from background, but it doesn't remember which trip room
       // we were in — without this, location updates would silently stop
-      // flowing until the screen was fully remounted.
+      // flowing until the screen was fully remounted. Rejoining alone isn't
+      // enough either: other members may have moved, triggered SOS, or left
+      // while this device was offline, so a reconnect also needs a full
+      // member/location resync, not just a resubscribe.
       socket.on("connect", () => {
+        setSocketConnected(true);
         socket.emit("joinRoom", { tripId: trip._id });
+        if (hasConnectedOnceRef.current) {
+          loadTripMembers();
+        }
+        hasConnectedOnceRef.current = true;
       });
 
+      socket.on("disconnect", () => {
+        setSocketConnected(false);
+      });
+
+      socket.on("connect_error", () => {
+        setSocketConnected(false);
+      });
+
+      hasConnectedOnceRef.current = socket.connected;
+      setSocketConnected(socket.connected);
       socket.emit("joinRoom", { tripId: trip._id });
 
-      socket.on("locationUpdate", ({ userId, lat, lng }) => {
+      socket.on("locationUpdate", ({ userId, lat, lng, distanceFromGroupKm, groupStatus }) => {
         setMembers((prev) => ({ ...prev, [userId]: { ...prev[userId], lat, lng } }));
         // If we don't have a name or cached location for this person yet,
         // refresh the member list so their marker can render immediately.
@@ -297,6 +331,14 @@ export default function TripMapScreen({ route, navigation }) {
           if (!prevNames[userId] || !members[userId]?.lat) loadTripMembers();
           return prevNames;
         });
+
+        // The server broadcasts locationUpdate to the whole room, including
+        // the sender, so this is also how we learn our own current
+        // distance/status from the group without a separate request.
+        if (String(userId) === String(user?.id)) {
+          if (typeof distanceFromGroupKm === "number") setMyDistanceFromGroupKm(distanceFromGroupKm);
+          if (groupStatus) setMyGroupStatus(groupStatus);
+        }
       });
 
       // Fired whenever anyone (including someone brand new) joins the trip's
@@ -338,6 +380,8 @@ export default function TripMapScreen({ route, navigation }) {
       if (socket) {
         socket.emit("leaveRoom", { tripId: trip._id });
         socket.off("connect");
+        socket.off("disconnect");
+        socket.off("connect_error");
         socket.off("locationUpdate");
         socket.off("memberJoined");
         socket.off("separationAlert");
@@ -434,6 +478,10 @@ export default function TripMapScreen({ route, navigation }) {
 
         if (String(m.user._id) === String(user?.id)) {
           setMySosActive(!!m.sos?.active);
+          setMyGroupStatus(m.groupStatus || null);
+          setMyDistanceFromGroupKm(
+            typeof m.distanceFromGroupKm === "number" ? m.distanceFromGroupKm : null
+          );
         }
 
         if (m.lastLocation?.lat !== undefined && m.lastLocation?.lng !== undefined) {
@@ -559,7 +607,7 @@ export default function TripMapScreen({ route, navigation }) {
             await tripAPI.end(trip._id);
             await clearActiveTripCache();
             await clearAutoSosDeadline(trip._id);
-            navigation.navigate("Home");
+            navigation.replace("TripSummary", { tripId: trip._id, trip });
           } catch (err) {
             Alert.alert("Could not end trip", err?.response?.data?.message || "Please try again.");
           } finally {
@@ -573,18 +621,36 @@ export default function TripMapScreen({ route, navigation }) {
   const memberMarkers = Object.entries(members)
     .filter(([, location]) => location?.lat && location?.lng)
     .map(([userId, location]) => ({
+      userId,
       latitude: location.lat,
       longitude: location.lng,
       sos: !!location.sos,
       name: membersById[userId] || "Trip member",
     }));
 
+  // membersById comes from the trip members API and already includes the
+  // current user, so it's the authoritative headcount. Fall back to
+  // memberMarkers + self only for the brief window before that list loads.
+  const totalMemberCount = Object.keys(membersById).length || memberMarkers.length + 1;
+  // Distance/status from the group is only meaningful once there's a group —
+  // a lone member is always reported "together" server-side.
+  const groupStatusInfo = totalMemberCount > 1 ? GROUP_STATUS_INFO[myGroupStatus] : null;
+  const myDistanceLabel = formatDistanceKm(myDistanceFromGroupKm);
+
   const tripHeaderCard = (
     <SafeAreaView style={styles.topBar} edges={["top"]}>
       <View style={styles.tripCard}>
         <View style={{ flex: 1 }}>
           <Text style={styles.tripName} numberOfLines={1}>{trip?.name || "Trip"}</Text>
-          <Text style={styles.memberCountText}>{memberMarkers.length + 1} on this trip</Text>
+          <Text style={styles.memberCountText}>{totalMemberCount} on this trip</Text>
+          {groupStatusInfo && (
+            <View style={[styles.groupStatusPill, { backgroundColor: groupStatusInfo.bg }]}>
+              <Text style={[styles.groupStatusPillText, { color: groupStatusInfo.color }]}>
+                {groupStatusInfo.label}
+                {myDistanceLabel ? ` · ${myDistanceLabel} from group` : ""}
+              </Text>
+            </View>
+          )}
         </View>
         <TouchableOpacity onPress={handleShareCode} style={styles.codeChip}>
           <Text style={styles.codeChipLabel}>CODE</Text>
@@ -625,6 +691,7 @@ export default function TripMapScreen({ route, navigation }) {
   const mapHtml = buildMapHtml({
     center: currentLocation || region,
     selfLocation: currentLocation,
+    selfId: user?.id,
     selfName: user?.name ? `You (${user.name.split(" ")[0]})` : "You",
     members: memberMarkers,
     destination: trip?.destination,
@@ -676,6 +743,13 @@ export default function TripMapScreen({ route, navigation }) {
 
         {statusOverlay}
       </View>
+
+      {!socketConnected && (
+        <View style={styles.reconnectBanner}>
+          <ActivityIndicator size="small" color="#FFFFFF" />
+          <Text style={styles.reconnectBannerText}>Reconnecting live tracking…</Text>
+        </View>
+      )}
 
       {separationAlert && (
         <View style={styles.alertBanner}>
@@ -729,6 +803,14 @@ const styles = StyleSheet.create({
   },
   tripName: { fontSize: 16, fontWeight: "800", color: "#1E293B" },
   memberCountText: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  groupStatusPill: {
+    alignSelf: "flex-start",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 6,
+  },
+  groupStatusPillText: { fontSize: 10.5, fontWeight: "800" },
   codeChip: {
     backgroundColor: "#EEF2FF",
     borderRadius: 14,
@@ -763,6 +845,25 @@ const styles = StyleSheet.create({
     zIndex: 11,
   },
   alertText: { color: "#1E293B", fontWeight: "700", textAlign: "center", fontSize: 13 },
+  reconnectBanner: {
+    position: "absolute",
+    top: 100,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: "#1E293B",
+    borderRadius: 16,
+    padding: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 11,
+  },
+  reconnectBannerText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
   mapArea: { flex: 1 },
   statusOverlay: {
     position: "absolute",

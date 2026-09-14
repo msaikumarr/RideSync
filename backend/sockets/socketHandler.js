@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const TripMember = require('../models/TripMember');
-const Trip = require('../models/Trip');
-const { distanceKm } = require('../utils/geo');
+const { recordLocationUpdate } = require('../services/locationService');
+const { evaluateMemberSeparation } = require('../services/separationService');
 
 // Verifies the JWT sent by the client during socket handshake
 const authenticateSocket = (socket, next) => {
@@ -43,49 +43,24 @@ const registerSocketHandlers = (io) => {
     // locationUpdate: real-time GPS broadcast + separation check
     socket.on('locationUpdate', async ({ tripId, lat, lng }) => {
       try {
-        const member = await TripMember.findOneAndUpdate(
-          { trip: tripId, user: socket.user.id, leftAt: null },
-          { lastLocation: { lat, lng, updatedAt: new Date() } },
-          { new: true }
-        );
+        const member = await recordLocationUpdate({ tripId, userId: socket.user.id, lat, lng });
 
         if (!member) return;
 
-        // Broadcast this member's new location to the rest of the room
+        const result = await evaluateMemberSeparation({ tripId, userId: socket.user.id, lat, lng, io });
+
+        // Broadcast this member's new location (plus their current
+        // distance/status from the group) to the rest of the room. If
+        // separation was just confirmed, evaluateMemberSeparation already
+        // broadcast 'separationAlert' and persisted notifications itself.
         io.to(`trip:${tripId}`).emit('locationUpdate', {
           userId: socket.user.id,
           lat,
           lng,
-          updatedAt: member.lastLocation.updatedAt
+          updatedAt: member.lastLocation.updatedAt,
+          distanceFromGroupKm: result?.distanceFromGroupKm,
+          groupStatus: result?.groupStatus
         });
-
-        const trip = await Trip.findById(tripId);
-        const threshold = trip ? trip.separationThresholdKm : 2;
-
-        const otherMembers = await TripMember.find({
-          trip: tripId,
-          user: { $ne: socket.user.id },
-          leftAt: null,
-          'lastLocation.lat': { $exists: true }
-        });
-
-        if (otherMembers.length > 0) {
-          const separated = otherMembers.every(
-            (other) => distanceKm(lat, lng, other.lastLocation.lat, other.lastLocation.lng) > threshold
-          );
-
-          if (separated !== member.isSeparated) {
-            member.isSeparated = separated;
-            await member.save();
-
-            if (separated) {
-              io.to(`trip:${tripId}`).emit('separationAlert', {
-                userId: socket.user.id,
-                message: 'A member has moved beyond the safe distance threshold'
-              });
-            }
-          }
-        }
       } catch (err) {
         console.error('locationUpdate error:', err.message);
       }

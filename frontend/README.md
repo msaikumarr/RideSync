@@ -1,6 +1,6 @@
-# M-Sync Frontend (React Native / Expo)
+# RideSync Frontend (React Native / Expo)
 
-Mobile app for **M-Sync – Smart Group Ride Companion**. Talks to the `ridesync-backend` API and Socket.IO server.
+Mobile app for **RideSync – Smart Group Ride Companion**. Talks to the `ridesync-backend` API and Socket.IO server.
 
 ## Stack
 - React Native + Expo (SDK 51)

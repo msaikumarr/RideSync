@@ -1,6 +1,5 @@
-const TripMember = require('../models/TripMember');
-const Trip = require('../models/Trip');
-const { distanceKm } = require('../utils/geo');
+const { recordLocationUpdate } = require('../services/locationService');
+const { evaluateMemberSeparation } = require('../services/separationService');
 
 // POST /location/update
 // Body: { tripId, lat, lng }
@@ -13,40 +12,25 @@ const updateLocation = async (req, res) => {
       return res.status(400).json({ message: 'tripId, lat and lng are required' });
     }
 
-    const member = await TripMember.findOne({ trip: tripId, user: req.user.id, leftAt: null });
+    const member = await recordLocationUpdate({ tripId, userId: req.user.id, lat, lng });
     if (!member) {
       return res.status(404).json({ message: 'You are not an active member of this trip' });
     }
 
-    member.lastLocation = { lat, lng, updatedAt: new Date() };
-    await member.save();
-
-    const trip = await Trip.findById(tripId);
-    const threshold = trip ? trip.separationThresholdKm : 2;
-
-    // Check separation against all other active members
-    const otherMembers = await TripMember.find({
-      trip: tripId,
-      user: { $ne: req.user.id },
-      leftAt: null,
-      'lastLocation.lat': { $exists: true }
+    const result = await evaluateMemberSeparation({
+      tripId,
+      userId: req.user.id,
+      lat,
+      lng,
+      io: req.app.get('io')
     });
-
-    let separated = false;
-    if (otherMembers.length > 0) {
-      separated = otherMembers.every((other) => {
-        const d = distanceKm(lat, lng, other.lastLocation.lat, other.lastLocation.lng);
-        return d > threshold;
-      });
-    }
-
-    member.isSeparated = separated;
-    await member.save();
 
     res.status(200).json({
       message: 'Location updated',
       location: member.lastLocation,
-      separated
+      groupStatus: result?.groupStatus,
+      distanceFromGroupKm: result?.distanceFromGroupKm,
+      separated: result?.isSeparated || false
     });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update location', error: err.message });

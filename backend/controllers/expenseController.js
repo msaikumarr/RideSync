@@ -1,6 +1,8 @@
 const Expense = require('../models/Expense');
 const TripMember = require('../models/TripMember');
+const User = require('../models/User');
 const { computeBalances, computeMinimumSettlements } = require('../utils/settlement');
+const { createNotifications } = require('../services/notificationService');
 
 // POST /expense/add
 const addExpense = async (req, res) => {
@@ -24,6 +26,17 @@ const addExpense = async (req, res) => {
       description,
       amount,
       splitAmong: participants
+    });
+
+    // Only the people actually splitting this expense need to know about it —
+    // not everyone on the trip, if a subset was chosen.
+    const payer = await User.findById(req.user.id).select('name');
+    await createNotifications({
+      userIds: participants.filter((id) => String(id) !== req.user.id),
+      tripId,
+      type: 'expense_added',
+      message: `${payer?.name || 'Someone'} added an expense: ₹${amount} for ${description || category || 'trip costs'}.`,
+      io: req.app.get('io')
     });
 
     res.status(201).json({ expense });

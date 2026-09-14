@@ -8,12 +8,15 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import OTPScreen from '../screens/OTPScreen';
 import HomeScreen from '../screens/HomeScreen';
 import TripMapScreen from '../screens/TripMapScreen';
 import ExpensesScreen from '../screens/ExpensesScreen';
 import TripHistoryScreen from '../screens/TripHistoryScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AboutScreen from '../screens/AboutScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import TripSummaryScreen from '../screens/TripSummaryScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -39,6 +42,8 @@ export default function AppNavigator() {
             <Stack.Screen name="TripHistory" component={TripHistoryScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="About" component={AboutScreen} />
+            <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="TripSummary" component={TripSummaryScreen} />
           </>
         ) : (
           <>
@@ -46,6 +51,7 @@ export default function AppNavigator() {
             <Stack.Screen name="ForgotPassword">{props => <ForgotPasswordScreen {...props} />}</Stack.Screen>
             <Stack.Screen name="ResetPassword">{props => <ResetPasswordScreen {...props} />}</Stack.Screen>
             <Stack.Screen name="Register">{props => <RegisterScreen {...props} />}</Stack.Screen>
+            <Stack.Screen name="OTP">{props => <OTPScreen {...props} />}</Stack.Screen>
           </>
         )}
       </Stack.Navigator>

@@ -6,7 +6,7 @@ const expenseSchema = new mongoose.Schema(
     paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     category: {
       type: String,
-      enum: ['fuel', 'food', 'tolls', 'hotels', 'parking', 'other'],
+      enum: ['fuel', 'food', 'tolls', 'hotels', 'parking', 'vehicle', 'other'],
       default: 'other'
     },
     description: { type: String, trim: true },

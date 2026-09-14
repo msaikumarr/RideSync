@@ -148,12 +148,20 @@ export default function TripHistoryScreen({ navigation }) {
                     <Text style={styles.primaryActionText}>Resume</Text>
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity
-                    style={styles.secondaryAction}
-                    onPress={() => navigation.navigate("Expenses", { trip })}
-                  >
-                    <Text style={styles.secondaryActionText}>View Expenses</Text>
-                  </TouchableOpacity>
+                  <>
+                    <TouchableOpacity
+                      style={styles.secondaryAction}
+                      onPress={() => navigation.navigate("TripSummary", { tripId: trip._id, trip })}
+                    >
+                      <Text style={styles.secondaryActionText}>Summary</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.secondaryAction}
+                      onPress={() => navigation.navigate("Expenses", { trip })}
+                    >
+                      <Text style={styles.secondaryActionText}>Expenses</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
                 <TouchableOpacity style={styles.shareAction} onPress={() => handleShare(trip)}>
                   <Text style={styles.shareActionText}>Share</Text>

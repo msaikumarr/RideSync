@@ -11,7 +11,13 @@ const userSchema = new mongoose.Schema(
       phone: { type: String }
     },
     resetPasswordToken: { type: String },
-    resetPasswordExpires: { type: Date }
+    resetPasswordExpires: { type: Date },
+    isVerified: { type: Boolean, default: false },
+    // Hashed like a password (bcrypt) rather than stored in plaintext, even
+    // though it's short-lived — see controllers/authController.js.
+    otpCodeHash: { type: String },
+    otpExpiresAt: { type: Date },
+    otpAttempts: { type: Number, default: 0 }
   },
   { timestamps: true }
 );

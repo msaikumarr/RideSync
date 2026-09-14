@@ -8,6 +8,7 @@ const {
   endTrip,
   getActiveTrip,
   getTripHistory,
+  getTripSummary,
   removeFromHistory
 } = require('../controllers/tripController');
 
@@ -16,6 +17,7 @@ router.post('/join', protect, joinTrip);
 router.get('/active', protect, getActiveTrip);
 router.get('/history', protect, getTripHistory);
 router.get('/:tripId/members', protect, getTripMembers);
+router.get('/:tripId/summary', protect, getTripSummary);
 router.post('/:tripId/end', protect, endTrip);
 router.delete('/:tripId/history', protect, removeFromHistory);
 

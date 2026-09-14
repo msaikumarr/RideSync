@@ -30,6 +30,11 @@ export default function LoginScreen({ navigation }) {
     try {
       await login(email.trim(), password);
     } catch (err) {
+      if (err?.response?.data?.requiresVerification) {
+        navigation.navigate("OTP", { email: err.response.data.email || email.trim(), autoSend: true });
+        return;
+      }
+
       Alert.alert(
         "Login Failed",
         err?.response?.data?.message || "Something went wrong."

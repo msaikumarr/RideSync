@@ -18,19 +18,26 @@ export default function RegisterScreen({ navigation }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [secure, setSecure] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const handleRegister = async () => {
-    if (!name || !email || !password || !phone.trim()) {
-      Alert.alert("Missing Information", "Name, Email, Phone and Password are required.");
+    if (!name || !email || !password || !confirmPassword || !phone.trim()) {
+      Alert.alert("Missing Information", "Name, Email, Phone, Password and Confirm Password are required.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert("Passwords don't match", "Make sure both password fields are the same.");
       return;
     }
 
     setSubmitting(true);
 
     try {
-      await register(name.trim(), email.trim(), password, phone.trim());
+      const result = await register(name.trim(), email.trim(), password, phone.trim());
+      navigation.navigate("OTP", { email: result?.email || email.trim() });
     } catch (err) {
       Alert.alert(
         "Registration Failed",
@@ -116,6 +123,19 @@ export default function RegisterScreen({ navigation }) {
                 {secure ? "SHOW" : "HIDE"}
               </Text>
             </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.label,{marginTop:18}]}>CONFIRM PASSWORD</Text>
+
+          <View style={styles.passwordBox}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Re-enter Password"
+              placeholderTextColor="#94A3B8"
+              secureTextEntry={secure}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+            />
           </View>
 
           <TouchableOpacity
