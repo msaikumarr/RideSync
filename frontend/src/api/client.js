@@ -1,8 +1,9 @@
 import axios from 'axios';
+import Constants from 'expo-constants';
 import { getToken } from '../utils/storage';
 
-// Update this to your backend URL (see ../../.env.example)
-const API_BASE_URL = 'http://10.116.108.73:5000/api';
+// Sourced from EXPO_PUBLIC_API_BASE_URL (see ../../.env.example) via app.config.js
+const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://localhost:5000/api';
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -23,7 +24,9 @@ export const authAPI = {
   verifyOtp: (email, otp) => client.post('/verify-otp', { email, otp }),
   login: (data) => client.post('/login', data),
   forgotPassword: (email) => client.post('/forgot-password', { email }),
-  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword })
+  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword }),
+  getProfile: () => client.get('/me'),
+  updateProfile: (data) => client.put('/me', data)
 };
 
 export const tripAPI = {

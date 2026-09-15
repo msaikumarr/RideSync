@@ -1,7 +1,8 @@
 import { io } from 'socket.io-client';
+import Constants from 'expo-constants';
 
-// Update this to your backend URL (see ../../.env.example)
-const SOCKET_URL = 'http://10.116.108.73:5000';
+// Sourced from EXPO_PUBLIC_SOCKET_URL (see ../../.env.example) via app.config.js
+const SOCKET_URL = Constants.expoConfig?.extra?.socketUrl || 'http://localhost:5000';
 
 let socket = null;
 

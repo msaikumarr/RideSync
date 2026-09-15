@@ -94,9 +94,13 @@ const MAP_HTML = `
       <script>
         const map = L.map('map', { zoomControl: true });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '&copy; OpenStreetMap contributors'
+        // CARTO Voyager: shaded buildings, colored roads/water and real
+        // place labels, closer to how Google/Apple Maps looks — plain OSM
+        // tiles read as flat/cartoonish by comparison. Free, no API key.
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          maxZoom: 20,
+          subdomains: 'abcd',
+          attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
         }).addTo(map);
 
         function escapeHtml(value) {
@@ -347,16 +351,24 @@ export default function TripMapScreen({ route, navigation }) {
     setAutoSosSecondsRemaining(null);
   };
 
-  const startInactivityCountdown = async (deadlineMs = Date.now() + INACTIVITY_TIMEOUT_MS) => {
+  // Arms the two timers synchronously (no `await` between clearing the old
+  // ones and setting the new ones) so an overlapping call can't leave an
+  // orphaned interval/timeout running with a stale deadline — that
+  // previously caused runaway repeated auto-SOS triggers. The storage write
+  // is fire-and-forget after arming, not a gate on it.
+  const startInactivityCountdown = (deadlineMs = Date.now() + INACTIVITY_TIMEOUT_MS) => {
     clearInactivityTimer();
 
     inactivityDeadlineRef.current = deadlineMs;
     const remainingMs = Math.max(0, deadlineMs - Date.now());
     setAutoSosSecondsRemaining(Math.ceil(remainingMs / 1000));
 
-    await saveAutoSosDeadline(trip?._id, deadlineMs);
-
     inactivityTickRef.current = setInterval(() => {
+      // A cleared deadline (null) must never read as "expired" — null
+      // coerces to 0 in arithmetic, which made this always fire while no
+      // countdown was actually armed.
+      if (!inactivityDeadlineRef.current) return;
+
       const remainingMs = Math.max(0, inactivityDeadlineRef.current - Date.now());
       const remainingSeconds = Math.ceil(remainingMs / 1000);
       setAutoSosSecondsRemaining(remainingSeconds);
@@ -370,7 +382,13 @@ export default function TripMapScreen({ route, navigation }) {
     inactivityTimeoutRef.current = setTimeout(() => {
       clearInactivityTimer();
       triggerAutoSOS();
-    }, INACTIVITY_TIMEOUT_MS);
+    }, Math.max(0, deadlineMs - Date.now()));
+
+    saveAutoSosDeadline(trip?._id, deadlineMs).catch(() => {
+      // non-fatal — the in-memory timers above are already the source of
+      // truth for this screen session; persistence only matters for
+      // restoring the countdown after the app is backgrounded/reopened.
+    });
   };
 
   const triggerAutoSOS = async () => {
@@ -551,7 +569,7 @@ export default function TripMapScreen({ route, navigation }) {
         if (!isCurrent) return;
 
         if (savedDeadline && savedDeadline > Date.now()) {
-          await startInactivityCountdown(savedDeadline);
+          startInactivityCountdown(savedDeadline);
         } else if (savedDeadline && savedDeadline <= Date.now()) {
           await clearAutoSosDeadline(trip._id);
           clearInactivityTimer();
@@ -621,8 +639,15 @@ export default function TripMapScreen({ route, navigation }) {
       lastMovementLocationRef.current = currentLocation;
       startInactivityCountdown();
     }
-
-    return () => clearInactivityTimer();
+    // No cleanup here: this effect reruns on every GPS tick (currentLocation
+    // changes), and clearing the timer on every rerun defeated the
+    // `!inactivityTimeoutRef.current` check above — it was always true right
+    // after cleanup, so the countdown restarted on every tick regardless of
+    // actual movement, and once the same shared deadline ref was briefly
+    // null mid-restart, any still-ticking interval read that as "expired"
+    // and re-fired auto-SOS — the runaway trigger loop. The branches above
+    // already clear explicitly when tracking should actually stop, and
+    // unmount cleanup happens in the effect below.
   }, [currentLocation, locationStatus, mySosActive, trip?._id]);
 
   const loadTripMembers = async () => {
@@ -852,10 +877,9 @@ export default function TripMapScreen({ route, navigation }) {
         isActive={mySosActive}
         countdownSeconds={autoSosSecondsRemaining}
         onTriggered={() => setMySosActive(true)}
-        onCleared={async () => {
+        onCleared={() => {
           setMySosActive(false);
-          await saveAutoSosDeadline(trip?._id, Date.now() + INACTIVITY_TIMEOUT_MS);
-          await startInactivityCountdown(Date.now() + INACTIVITY_TIMEOUT_MS);
+          startInactivityCountdown(Date.now() + INACTIVITY_TIMEOUT_MS);
         }}
       />
     </SafeAreaView>
