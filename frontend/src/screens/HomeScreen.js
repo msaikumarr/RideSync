@@ -32,7 +32,7 @@ const searchPlaces = async (query) => {
     query
   )}&format=json&limit=5&addressdetails=0`;
   const response = await fetch(url, {
-    headers: { "User-Agent": "M-Sync/1.0 (student project)" },
+    headers: { "User-Agent": "My-Ride/1.0 (student project)" },
   });
   return response.json();
 };
@@ -304,7 +304,7 @@ export default function HomeScreen({ navigation }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <Text style={styles.logo}>M-Sync</Text>
+            <Text style={styles.logo}>My-Ride</Text>
             <TouchableOpacity onPress={openMenu} style={styles.menuButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <View style={styles.menuBar} />
               <View style={styles.menuBar} />

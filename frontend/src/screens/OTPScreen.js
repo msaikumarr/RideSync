@@ -104,7 +104,7 @@ export default function OTPScreen({ route, navigation }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.header}>
-          <Text style={styles.heading}>M-Sync</Text>
+          <Text style={styles.heading}>My-Ride</Text>
           <Text style={styles.heading}>Verify Your{"\n"}Email</Text>
           <Text style={styles.subtitle}>
             Enter the 6-digit code we sent to{"\n"}

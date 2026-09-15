@@ -55,10 +55,10 @@ export default function LoginScreen({ navigation }) {
         contentContainerStyle={{ paddingBottom: 40 }}
       >
         <View style={styles.header}>
-          <Text style={styles.heading}>M-Sync</Text>
-
+          <Text style={styles.heading}>My-Ride</Text>
+          
           <Text style={styles.heading}>
-            Welcome{"\n"}Back
+            Welcome Back
           </Text>
 
         </View>

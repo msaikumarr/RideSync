@@ -16,13 +16,13 @@ export default function AboutScreen({ navigation }) {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Text style={styles.backButtonText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.heading}>About M-Sync</Text>
+          <Text style={styles.heading}>About My-Ride</Text>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.tagline}>Smart Group Ride Companion</Text>
           <Text style={styles.description}>
-            M-Sync keeps bike trips, road trips, treks, and tours together — live location sharing,
+            My-Ride keeps bike trips, road trips, treks, and tours together — live location sharing,
             rider phone details, direct calling, safety alerts, background-aware SOS, and fair expense splitting,
             all in one place.
           </Text>
@@ -43,7 +43,7 @@ export default function AboutScreen({ navigation }) {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Version</Text>
-          <Text style={styles.versionText}>M-Sync 1.0.0</Text>
+          <Text style={styles.versionText}>My-Ride 1.0.0</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

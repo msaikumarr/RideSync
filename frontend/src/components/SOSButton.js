@@ -122,7 +122,7 @@ export default function SOSButton({ tripId, isActive = false, countdownSeconds =
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Location permission required', 'M-Sync needs location access to send SOS.');
+        Alert.alert('Location permission required', 'My-Ride needs location access to send SOS.');
         return;
       }
       const position = await Location.getCurrentPositionAsync({});

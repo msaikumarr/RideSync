@@ -484,7 +484,7 @@ export default function TripMapScreen({ route, navigation }) {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Location permission required", "M-Sync needs location access to send SOS.");
+        Alert.alert("Location permission required", "My-Ride needs location access to send SOS.");
         return;
       }
 
@@ -1028,7 +1028,7 @@ export default function TripMapScreen({ route, navigation }) {
   const handleShareCode = async () => {
     if (!trip) return;
     try {
-      await Share.share({ message: `Join my M-Sync trip "${trip.name}" with code: ${trip.joinCode}` });
+      await Share.share({ message: `Join my trip on My-Ride: "${trip.name}" with code: ${trip.joinCode}` });
     } catch (e) {
       // ignore share cancellation
     }

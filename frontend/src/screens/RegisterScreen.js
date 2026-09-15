@@ -61,7 +61,7 @@ export default function RegisterScreen({ navigation }) {
       >
 
         <View style={styles.header}>
-          <Text style={styles.heading}>M-Sync</Text>
+          <Text style={styles.heading}>My-Ride</Text>
           
           <Text style={styles.heading}>
             Create Account
