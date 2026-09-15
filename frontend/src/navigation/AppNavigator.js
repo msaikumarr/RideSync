@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View } from 'react-native';
+import { View, Image, StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../context/AuthContext';
 
@@ -21,6 +21,11 @@ import TripSummaryScreen from '../screens/TripSummaryScreen';
 
 const Stack = createNativeStackNavigator();
 
+const styles = StyleSheet.create({
+  splash: { flex: 1, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center' },
+  splashIcon: { width: 120, height: 120, borderRadius: 26 },
+});
+
 export default function AppNavigator({ minSplashElapsed }) {
   const { user, loading } = useAuth();
   const hasHiddenSplash = useRef(false);
@@ -37,9 +42,15 @@ export default function AppNavigator({ minSplashElapsed }) {
   }, [appReady]);
 
   if (!appReady) {
-    // Renders nothing distinctive — the native splash (app icon on
-    // #0F172A) is still covering the screen at this point.
-    return <View style={{ flex: 1, backgroundColor: '#0F172A' }} />;
+    // Expo Go can't display our custom native splash (it always shows its
+    // own generic loading screen), so this JS-rendered fallback is what
+    // actually shows the app icon during the hold — not just a redundant
+    // backdrop for a native splash that may not be there.
+    return (
+      <View style={styles.splash}>
+        <Image source={require('../../assets/icon.png')} style={styles.splashIcon} />
+      </View>
+    );
   }
 
   return (
