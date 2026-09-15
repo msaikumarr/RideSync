@@ -23,6 +23,13 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION"
       ]
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:5000/api",
+      "socketUrl": "http://localhost:5000",
+      "eas": {
+        "projectId": "593d2f22-791e-4552-a3d6-fce1991f1f8f"
+      }
     }
   }
 }

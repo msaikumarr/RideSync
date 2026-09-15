@@ -19,6 +19,7 @@ module.exports = () => {
       package: process.env.EXPO_PUBLIC_ANDROID_PACKAGE || expo.android?.package,
     },
     extra: {
+      ...expo.extra,
       apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:5000/api',
       socketUrl: process.env.EXPO_PUBLIC_SOCKET_URL || 'http://localhost:5000',
     },

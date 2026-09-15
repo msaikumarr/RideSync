@@ -395,9 +395,9 @@ export default function HomeScreen({ navigation }) {
                 onChangeText={setTripName}
               />
 
-              <Text style={styles.label}>FINAL DESTINATION (OPTIONAL)</Text>
+              <Text style={styles.label}>FINAL DESTINATION </Text>
               <TextInput
-                style={styles.input}
+                style={styles.input}   
                 placeholder="Search a place, e.g. Araku Valley"
                 placeholderTextColor="#94A3B8"
                 value={destinationQuery}

@@ -10,6 +10,9 @@ const tripMemberSchema = new mongoose.Schema(
       lng: { type: Number },
       updatedAt: { type: Date }
     },
+    // 0-1 fraction from the device's battery API, refreshed alongside GPS
+    // updates so the group can see if someone's tracking might drop off soon.
+    batteryLevel: { type: Number },
     // Running sum of haversine deltas between consecutive location updates —
     // this member's actual traveled distance, not a straight-line estimate.
     // See services/locationService.js for how it's accumulated.

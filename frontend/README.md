@@ -5,7 +5,7 @@ Mobile app for **RideSync – Smart Group Ride Companion**. Talks to the `ridesy
 ## Stack
 - React Native + Expo (SDK 51)
 - React Navigation (native stack)
-- react-native-maps (live group map)
+- react-native-webview + Leaflet/OpenStreetMap (live group map)
 - expo-location (foreground GPS tracking)
 - expo-secure-store (JWT storage)
 - socket.io-client (real-time location, SOS, alerts)

@@ -11,7 +11,7 @@ const MAX_PLAUSIBLE_JUMP_KM = 5;
 // this is what makes Trip Summary's "total distance" a real, stored metric
 // instead of an estimate. Shared by the REST location-update endpoint and
 // the Socket.IO handler so both paths keep one consistent odometer.
-const recordLocationUpdate = async ({ tripId, userId, lat, lng }) => {
+const recordLocationUpdate = async ({ tripId, userId, lat, lng, batteryLevel }) => {
   const member = await TripMember.findOne({ trip: tripId, user: userId, leftAt: null });
   if (!member) return null;
 
@@ -24,6 +24,9 @@ const recordLocationUpdate = async ({ tripId, userId, lat, lng }) => {
   }
 
   member.lastLocation = { lat, lng, updatedAt: new Date() };
+  if (typeof batteryLevel === 'number') {
+    member.batteryLevel = batteryLevel;
+  }
   await member.save();
 
   return member;

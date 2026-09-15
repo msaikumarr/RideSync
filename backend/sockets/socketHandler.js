@@ -41,9 +41,9 @@ const registerSocketHandlers = (io) => {
     });
 
     // locationUpdate: real-time GPS broadcast + separation check
-    socket.on('locationUpdate', async ({ tripId, lat, lng }) => {
+    socket.on('locationUpdate', async ({ tripId, lat, lng, batteryLevel }) => {
       try {
-        const member = await recordLocationUpdate({ tripId, userId: socket.user.id, lat, lng });
+        const member = await recordLocationUpdate({ tripId, userId: socket.user.id, lat, lng, batteryLevel });
 
         if (!member) return;
 
@@ -58,6 +58,7 @@ const registerSocketHandlers = (io) => {
           lat,
           lng,
           updatedAt: member.lastLocation.updatedAt,
+          batteryLevel: member.batteryLevel,
           distanceFromGroupKm: result?.distanceFromGroupKm,
           groupStatus: result?.groupStatus
         });
