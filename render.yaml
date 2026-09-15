@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: ridesync-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: SEPARATION_ALERT_KM
+        value: "2"
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: MAX_RESET_ATTEMPTS
+        value: "5"
+      - key: RESET_LOCK_MINUTES
+        value: "60"
