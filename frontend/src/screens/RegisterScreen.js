@@ -10,6 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
+import AppLogo from "../components/AppLogo";
 
 export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
@@ -61,8 +62,8 @@ export default function RegisterScreen({ navigation }) {
       >
 
         <View style={styles.header}>
-          <Text style={styles.heading}>My-Ride</Text>
-          
+          <AppLogo />
+
           <Text style={styles.heading}>
             Create Account
           </Text>

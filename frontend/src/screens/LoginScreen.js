@@ -10,6 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
+import AppLogo from "../components/AppLogo";
 
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
@@ -55,8 +56,8 @@ export default function LoginScreen({ navigation }) {
         contentContainerStyle={{ paddingBottom: 40 }}
       >
         <View style={styles.header}>
-          <Text style={styles.heading}>My-Ride</Text>
-          
+          <AppLogo />
+
           <Text style={styles.heading}>
             Welcome Back
           </Text>

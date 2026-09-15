@@ -10,6 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
+import AppLogo from "../components/AppLogo";
 
 const RESEND_COOLDOWN_SECONDS = 30;
 
@@ -104,7 +105,7 @@ export default function OTPScreen({ route, navigation }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.header}>
-          <Text style={styles.heading}>My-Ride</Text>
+          <AppLogo />
           <Text style={styles.heading}>Verify Your{"\n"}Email</Text>
           <Text style={styles.subtitle}>
             Enter the 6-digit code we sent to{"\n"}

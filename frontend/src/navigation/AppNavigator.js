@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../context/AuthContext';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -20,15 +21,25 @@ import TripSummaryScreen from '../screens/TripSummaryScreen';
 
 const Stack = createNativeStackNavigator();
 
-export default function AppNavigator() {
+export default function AppNavigator({ minSplashElapsed }) {
   const { user, loading } = useAuth();
+  const hasHiddenSplash = useRef(false);
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#F4F7FE', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#4F46E5" />
-      </View>
-    );
+  // Ready to show real UI once the auth check has resolved AND the splash's
+  // minimum hold time (see App.js) has passed — whichever finishes last.
+  const appReady = !loading && minSplashElapsed;
+
+  useEffect(() => {
+    if (appReady && !hasHiddenSplash.current) {
+      hasHiddenSplash.current = true;
+      SplashScreen.hideAsync();
+    }
+  }, [appReady]);
+
+  if (!appReady) {
+    // Renders nothing distinctive — the native splash (app icon on
+    // #0F172A) is still covering the screen at this point.
+    return <View style={{ flex: 1, backgroundColor: '#0F172A' }} />;
   }
 
   return (

@@ -18,6 +18,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 import { tripAPI, notificationAPI } from "../api/client";
 import { saveActiveTrip, getActiveTripCache, clearActiveTripCache } from "../utils/storage";
+import AppLogo from "../components/AppLogo";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const MENU_WIDTH = Math.min(300, SCREEN_WIDTH * 0.8);
@@ -304,7 +305,7 @@ export default function HomeScreen({ navigation }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <Text style={styles.logo}>My-Ride</Text>
+            <AppLogo size={30} />
             <TouchableOpacity onPress={openMenu} style={styles.menuButton} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <View style={styles.menuBar} />
               <View style={styles.menuBar} />

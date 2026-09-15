@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from "react-native";
+import AppLogo from "../components/AppLogo";
 
 const FEATURES = [
   { title: "Live group map", desc: "Track everyone in the trip in real time and keep the room synced on every device." },
@@ -20,6 +21,7 @@ export default function AboutScreen({ navigation }) {
         </View>
 
         <View style={styles.card}>
+          <AppLogo size={52} style={{ alignSelf: "center", marginBottom: 14 }} />
           <Text style={styles.tagline}>Smart Group Ride Companion</Text>
           <Text style={styles.description}>
             My-Ride keeps bike trips, road trips, treks, and tours together — live location sharing,
