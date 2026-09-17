@@ -24,7 +24,8 @@ export const authAPI = {
   verifyOtp: (email, otp) => client.post('/verify-otp', { email, otp }),
   login: (data) => client.post('/login', data),
   forgotPassword: (email) => client.post('/forgot-password', { email }),
-  resetPassword: (token, newPassword) => client.post('/reset-password', { token, newPassword }),
+  verifyResetOtp: (email, otp) => client.post('/verify-reset-otp', { email, otp }),
+  resetPassword: (resetJwt, password) => client.post('/reset-password', { resetJwt, password }),
   getProfile: () => client.get('/me'),
   updateProfile: (data) => client.put('/me', data)
 };

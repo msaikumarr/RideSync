@@ -1,9 +1,10 @@
 const bcrypt = require('bcrypt');
-const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { sendMail } = require('../utils/mail');
 const { generateOtp, OTP_EXPIRY_MINUTES, MAX_OTP_ATTEMPTS } = require('../utils/otp');
+
+const RESET_JWT_EXPIRES_IN = '15m';
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET, {
@@ -17,6 +18,15 @@ const sendOtpEmail = async (to, name, otp) => {
     subject: 'Your RideSync verification code',
     text: `Hi ${name || 'there'},\n\nYour verification code is ${otp}. It expires in ${OTP_EXPIRY_MINUTES} minutes.\n\nIf you didn't request this, you can ignore this email.`,
     html: `<p>Hi ${name || 'there'},</p><p>Your verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:6px;">${otp}</p><p>It expires in ${OTP_EXPIRY_MINUTES} minutes.</p><p>If you didn't request this, you can ignore this email.</p>`
+  });
+};
+
+const sendPasswordResetOtpEmail = async (to, name, otp) => {
+  await sendMail({
+    to,
+    subject: 'Your password reset code',
+    text: `Hi ${name || 'there'},\n\nYour password reset code is ${otp}. It expires in ${OTP_EXPIRY_MINUTES} minutes.\n\nIf you didn't request this, you can ignore this email and your password will stay the same.`,
+    html: `<p>Hi ${name || 'there'},</p><p>Your password reset code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:6px;">${otp}</p><p>It expires in ${OTP_EXPIRY_MINUTES} minutes.</p><p>If you didn't request this, you can ignore this email and your password will stay the same.</p>`
   });
 };
 
@@ -231,6 +241,7 @@ module.exports = {
   verifyOtp,
   login,
   forgotPassword,
+  verifyResetOtp,
   resetPassword,
   getProfile,
   updateProfile,
@@ -240,7 +251,7 @@ module.exports = {
 // GET /me
 async function getProfile(req, res) {
   try {
-    const user = await User.findById(req.user.id).select('-password -resetPasswordToken -resetPasswordExpires');
+    const user = await User.findById(req.user.id).select('-password -resetOtpHash -resetOtpExpiresAt');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -321,11 +332,9 @@ async function changePassword(req, res) {
 }
 
 // POST /forgot-password
-// NOTE: This project has no email service wired up yet. In place of emailing
-// a reset link, the token is returned directly in the API response so the
-// flow can be tested end-to-end during development. Before shipping this to
-// real users, swap the response for an actual email send and stop returning
-// the token to the client.
+// Emails a 6-digit OTP for password reset. Always responds the same way
+// regardless of whether the account exists, so this can't be used to
+// discover which emails are registered.
 async function forgotPassword(req, res) {
   try {
     const { email } = req.body;
@@ -333,47 +342,108 @@ async function forgotPassword(req, res) {
       return res.status(400).json({ message: 'Email is required' });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
-    // Always return 200 even if the user doesn't exist, so this endpoint
-    // can't be used to discover which emails are registered.
+    const genericResponse = { message: 'If that email exists, a reset code has been sent.' };
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
-      return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
+      return res.status(200).json(genericResponse);
     }
 
-    const token = crypto.randomBytes(32).toString('hex');
-    user.resetPasswordToken = token;
-    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const otp = generateOtp();
+    user.resetOtpHash = await bcrypt.hash(otp, 10);
+    user.resetOtpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    user.resetOtpAttempts = 0;
     await user.save();
 
-    res.status(200).json({
-      message: 'If that email exists, a reset link has been sent.',
-      devToken: token // dev-only, see note above
-    });
+    try {
+      await sendPasswordResetOtpEmail(user.email, user.name, otp);
+    } catch (mailErr) {
+      // Don't reveal delivery failures to the client — same generic
+      // response either way, so this can't be used to probe for accounts.
+      console.error('Failed to send password reset OTP email:', mailErr.message || mailErr);
+    }
+
+    res.status(200).json(genericResponse);
   } catch (err) {
     res.status(500).json({ message: 'Could not process request', error: err.message });
+  }
+}
+
+// POST /verify-reset-otp
+// Success returns a short-lived resetJwt that authorizes exactly one
+// POST /reset-password call, so the password change itself needs no OTP.
+async function verifyResetOtp(req, res) {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user || !user.resetOtpHash || !user.resetOtpExpiresAt || user.resetOtpExpiresAt < new Date()) {
+      return res.status(400).json({ message: 'This code has expired or is invalid. Request a new one.' });
+    }
+
+    if (user.resetOtpAttempts >= MAX_OTP_ATTEMPTS) {
+      user.resetOtpHash = undefined;
+      user.resetOtpExpiresAt = undefined;
+      await user.save();
+      return res.status(429).json({ message: 'Too many incorrect attempts. Request a new code.' });
+    }
+
+    const isMatch = await bcrypt.compare(otp, user.resetOtpHash);
+    if (!isMatch) {
+      user.resetOtpAttempts += 1;
+      await user.save();
+      const remaining = MAX_OTP_ATTEMPTS - user.resetOtpAttempts;
+      return res.status(400).json({
+        message:
+          remaining > 0
+            ? `Incorrect code. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`
+            : 'Incorrect code. Request a new one.'
+      });
+    }
+
+    user.resetOtpHash = undefined;
+    user.resetOtpExpiresAt = undefined;
+    user.resetOtpAttempts = 0;
+    await user.save();
+
+    const resetJwt = jwt.sign({ id: user._id, purpose: 'password-reset' }, process.env.JWT_SECRET, {
+      expiresIn: RESET_JWT_EXPIRES_IN
+    });
+
+    res.status(200).json({ resetJwt });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not verify code', error: err.message });
   }
 }
 
 // POST /reset-password
 async function resetPassword(req, res) {
   try {
-    const { token, newPassword } = req.body;
-    if (!token || !newPassword) {
-      return res.status(400).json({ message: 'Token and new password are required' });
+    const { resetJwt, password } = req.body;
+    if (!resetJwt || !password) {
+      return res.status(400).json({ message: 'Reset session and new password are required' });
     }
 
-    const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpires: { $gt: new Date() }
-    });
+    let payload;
+    try {
+      payload = jwt.verify(resetJwt, process.env.JWT_SECRET);
+    } catch (verifyErr) {
+      return res.status(400).json({ message: 'This reset session is invalid or has expired. Please verify your code again.' });
+    }
 
+    if (payload.purpose !== 'password-reset') {
+      return res.status(400).json({ message: 'Invalid reset session' });
+    }
+
+    const user = await User.findById(payload.id);
     if (!user) {
-      return res.status(400).json({ message: 'This reset link is invalid or has expired' });
+      return res.status(404).json({ message: 'User not found' });
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
+    user.password = await bcrypt.hash(password, 10);
     await user.save();
 
     res.status(200).json({ message: 'Password updated. You can now log in.' });

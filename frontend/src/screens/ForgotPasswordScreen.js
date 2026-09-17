@@ -13,8 +13,8 @@ export default function ForgotPasswordScreen({ navigation }) {
     }
     setSubmitting(true);
     try {
-      const { data } = await authAPI.forgotPassword({ email: email.trim() });
-      Alert.alert('Request Sent', data.message || 'If an account exists, a reset email was sent.');
+      const { data } = await authAPI.forgotPassword(email.trim());
+      Alert.alert('Request Sent', data.message || 'If an account exists, a reset code was sent.');
       navigation.navigate('ResetPassword', { email: email.trim() });
     } catch (err) {
       Alert.alert('Error', err?.response?.data?.message || 'Something went wrong.');

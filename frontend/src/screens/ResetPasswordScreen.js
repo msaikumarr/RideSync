@@ -21,7 +21,7 @@ export default function ResetPasswordScreen({ route, navigation }) {
 
     setVerifying(true);
     try {
-      const { data } = await authAPI.verifyOtp({ email: email.trim(), token: otp.trim() });
+      const { data } = await authAPI.verifyResetOtp(email.trim(), otp.trim());
       setResetJwt(data.resetJwt);
       Alert.alert('Verified', 'OTP verified. You can now set a new password.');
       passwordInputRef.current?.focus?.();
@@ -40,7 +40,7 @@ export default function ResetPasswordScreen({ route, navigation }) {
 
     try {
       setVerifying(true);
-      const { data } = await authAPI.forgotPassword({ email: email.trim() });
+      const { data } = await authAPI.forgotPassword(email.trim());
       setResetJwt(null);
       Alert.alert('OTP Sent', data.message || 'A new OTP has been sent to your email.');
       otpInputRef.current?.focus?.();
@@ -64,7 +64,7 @@ export default function ResetPasswordScreen({ route, navigation }) {
 
     setSubmitting(true);
     try {
-      const { data } = await authAPI.resetPassword({ resetJwt, password });
+      const { data } = await authAPI.resetPassword(resetJwt, password);
       Alert.alert('Success', data.message || 'Password updated');
       navigation.navigate('Login');
     } catch (err) {
