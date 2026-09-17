@@ -66,7 +66,13 @@ const register = async (req, res) => {
       });
     }
 
-    await sendOtpEmail(user.email, user.name, otp);
+    try {
+      await sendOtpEmail(user.email, user.name, otp);
+    } catch (mailErr) {
+      // The account is already created — don't fail registration over a
+      // flaky SMTP connection. The user can retry via "Resend OTP".
+      console.error('Failed to send OTP email during registration:', mailErr.message || mailErr);
+    }
 
     res.status(201).json({
       message: 'Registration successful. Enter the OTP sent to your email to verify your account.',
@@ -102,7 +108,12 @@ const sendOtp = async (req, res) => {
     user.otpAttempts = 0;
     await user.save();
 
-    await sendOtpEmail(user.email, user.name, otp);
+    try {
+      await sendOtpEmail(user.email, user.name, otp);
+    } catch (mailErr) {
+      console.error('Failed to send OTP email on resend:', mailErr.message || mailErr);
+      return res.status(502).json({ message: 'Could not send verification email. Please try again shortly.' });
+    }
 
     res.status(200).json({ message: 'A new verification code has been sent to your email.' });
   } catch (err) {
