@@ -25,6 +25,9 @@ services:
         sync: false
       - key: SMTP_PASS
         sync: false
+      # Optional: only needed if the sender address should differ from
+      # SMTP_USER. Leaving this unset (recommended for Gmail) falls back to
+      # SMTP_USER, which Gmail requires the From address to match anyway.
       - key: FROM_EMAIL
         sync: false
       - key: FRONTEND_URL
