@@ -15,6 +15,13 @@ services:
         value: 7d
       - key: SEPARATION_ALERT_KM
         value: "2"
+      # Preferred email provider: Brevo's HTTPS API (see backend/.env.example).
+      # Avoids the SMTP connection timeouts/blocks Gmail SMTP hits from Render.
+      - key: BREVO_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      # Fallback SMTP settings, only used if BREVO_API_KEY is not set.
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
@@ -24,11 +31,6 @@ services:
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
-        sync: false
-      # Optional: only needed if the sender address should differ from
-      # SMTP_USER. Leaving this unset (recommended for Gmail) falls back to
-      # SMTP_USER, which Gmail requires the From address to match anyway.
-      - key: FROM_EMAIL
         sync: false
       - key: FRONTEND_URL
         sync: false

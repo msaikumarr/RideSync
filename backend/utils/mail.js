@@ -2,13 +2,8 @@ const nodemailer = require('nodemailer');
 
 let transporter;
 
+// Dev-only preview inbox, used when no real email provider is configured.
 const createFallbackTransporter = async () => {
-  // In development, use Ethereal test account so you can view real previews
-  if (process.env.NODE_ENV === 'production') {
-    // production requires SMTP configured
-    throw new Error('SMTP not configured in production');
-  }
-
   const testAccount = await nodemailer.createTestAccount();
   const testTransport = nodemailer.createTransport({
     host: testAccount.smtp.host,
@@ -19,7 +14,7 @@ const createFallbackTransporter = async () => {
   return { transporter: testTransport, testAccount };
 };
 
-const ensureTransporter = async () => {
+const ensureSmtpTransporter = async () => {
   if (transporter) return { transporter };
   if (process.env.SMTP_HOST && process.env.SMTP_USER) {
     transporter = nodemailer.createTransport({
@@ -47,18 +42,56 @@ const ensureTransporter = async () => {
   return { transporter, testAccount: fallback.testAccount };
 };
 
-async function sendMail({ to, from, subject, text, html }) {
-  const { transporter, testAccount } = await ensureTransporter();
+// Brevo's transactional email API (HTTPS), not raw SMTP — avoids the
+// connection timeouts/blocks that plain SMTP hits from cloud hosts like
+// Render when talking to providers like Gmail.
+const sendViaBrevo = async ({ to, from, subject, text, html }) => {
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': process.env.BREVO_API_KEY,
+      'content-type': 'application/json',
+      accept: 'application/json'
+    },
+    body: JSON.stringify({
+      sender: { email: from },
+      to: [{ email: to }],
+      subject,
+      textContent: text,
+      htmlContent: html
+    })
+  });
 
-  const mailOpts = {
-    from: from || process.env.FROM_EMAIL || process.env.SMTP_USER || (testAccount && testAccount.user),
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Brevo send failed (${res.status}): ${body}`);
+  }
+
+  return res.json();
+};
+
+async function sendMail({ to, from, subject, text, html }) {
+  const fromAddress = from || process.env.FROM_EMAIL || process.env.SMTP_USER;
+
+  if (process.env.BREVO_API_KEY) {
+    const info = await sendViaBrevo({ to, from: fromAddress, subject, text, html });
+    return { info };
+  }
+
+  if (process.env.NODE_ENV === 'production' && !(process.env.SMTP_HOST && process.env.SMTP_USER)) {
+    throw new Error('No email provider configured in production (set BREVO_API_KEY or SMTP_*)');
+  }
+
+  const { transporter, testAccount } = await ensureSmtpTransporter();
+
+  const info = await transporter.sendMail({
+    from: fromAddress || (testAccount && testAccount.user),
     to,
     subject,
     text,
     html
-  };
+  });
 
-  const info = await transporter.sendMail(mailOpts);
   // if using Ethereal, log preview URL
   if (testAccount && info && info.messageId) {
     const previewUrl = nodemailer.getTestMessageUrl(info);
